@@ -1,60 +1,56 @@
 # dsh-context-guard
 
-**会话太长就提醒你收尾换会话**的 [DeepSeek Harness](https://deepseek-harness.github.io/deepseek-harness/guide/quickstart) 插件。
+English | [中文](README.zh.md)
 
-消费官方 `dsh-token-meter` 已经算好的 `contextPressure` 投影，在**一轮结束之后**按双档阈值提示：
-「先把交接写进文档，再开新会话」。它会顺着帮你把这句提示**变成动作** —— 跨过阈值时自动往会话工作目录起草一份交接草稿。
+A [DeepSeek Harness](https://deepseek-harness.github.io/deepseek-harness/guide/quickstart) plugin that **tells you to wrap up and start a new session before the session gets too long**.
 
-**上下文税 = 0**：不注册任何 model-facing 工具、不注入 prompt 段落、不额外发请求。宿主算数，UI 说话。
+It consumes the `contextPressure` projection that the official `dsh-token-meter` has already computed, and **after a turn has ended** it speaks up on two thresholds: "write the handoff into a document first, then start a new session." It then helps turn that sentence **into an action** — once the threshold is crossed it drafts a handoff block into the session working directory.
 
-![会话头徽标（ctx 48%）与一次性 banner —— 截图为脱敏版，会话内容已打码](docs/badge-and-banner.png)
+**Context tax = 0**: it registers no model-facing tool, injects no prompt section, and sends no extra request. The host does the arithmetic, the UI does the talking.
+
+![Session-header badge (ctx 48%) and the one-shot banner — redacted screenshot, session content masked](docs/badge-and-banner.png)
 
 ---
 
-## ⚠️ 它会写你的工作目录（装之前先看这一段）
+## ⚠️ It writes to your working directory (read this before installing)
 
-- 默认开启（`handoverOnWarn: true`）。当某个会话的**占用率跨过 `warnRatio`（默认 45%）**时，
-  插件会在**该会话的工作目录**下创建/改写 `handoverPath`（默认 `HANDOVER.md`），此后水位每涨 5 个点刷新一次。
-- 写入的内容是**机器事实**：会话 id、标题、工作目录、占用率、轮数/调用数、**账本花费**、
-  **本次会话写过的文件清单**、**最近几轮的用户诉求与回复摘要**，以及一段留给 agent 的「待补」空槽。
-  ⇒ **它可能包含敏感内容**（文件路径、你的提问与回复片段），**也可能被 git 提交**。
-- 建议：把 `HANDOVER.md` 加进你的 `.gitignore`；或把 `handoverPath` 指到一个**不在仓库里**的路径；
-  或直接 `handoverOnWarn: false`。
-- 边界：目标父目录不存在 ⇒ 拒绝写入；目标已存在但不是文本类文件（`.json`/`.yml`/…）⇒ 拒绝改写；
-  目标是指向别处的**符号链接** ⇒ 拒绝；写入使用原子替换（临时文件 + rename）并收紧权限（`0o600`）。
-  任何失败都只记录状态，**绝不影响**徽标 / banner / 推送。
+- **On by default** (`handoverOnWarn: true`). When a session's occupancy crosses `warnRatio` (default 45%), the plugin creates/rewrites `handoverPath` (default `HANDOVER.md`) in **that session's working directory**, and then refreshes it every further 5 percentage points.
+- What it writes are **machine facts**: session id, title, working directory, occupancy, turn/call counts, **ledger cost**, **the files this session wrote**, **previews of the last few prompts and replies**, plus empty "to be filled in" slots for the agent.
+  ⇒ **It may contain sensitive content** (file paths, fragments of your questions and replies), and **it may end up committed by git**.
+- Suggestions: add `HANDOVER.md` to your `.gitignore`; or point `handoverPath` at a location **outside any repository**; or simply set `handoverOnWarn: false`.
+- Boundaries: a missing parent directory is refused; an existing target that is not a text file (`.json`/`.yml`/…) is refused; a **symlink** pointing elsewhere is refused; writes are atomic (temp file + rename) with tight permissions (`0o600`). Any failure is recorded as status only — it **never affects** the badge, the banner, or the push.
 
-## 它做什么
+## What it does
 
-| 半边 | 做什么 |
+| Half | What it does |
 |---|---|
-| **host**（`lib/index.js`） | 订阅 `ctx.sessionProjections.onChanged`，把 `contextPressure` 喂给纯策略；在 `turn/end` 结算一轮；持有设置；`session/created`（新建或从存储恢复）时立刻判一次；`compaction/end`、`request/header` 参与判定；注册 `GET /api/context-guard/state`；按设置把结论外推到微信；跨过阈值时**起草交接草稿** |
-| **client**（`lib/client.js`，手写单文件 bundle） | 会话头**徽标**（实时占用率，只显示数字、不出声）+ 跨档时**一次性 banner**（占比 + 下一步 + 指向交接文档）；启动时从状态路由读回宿主设置（**内置默认 < 宿主真源 < 逃生阀**三层合并） |
+| **host** (`lib/index.js`) | Subscribes to `ctx.sessionProjections.onChanged` and feeds `contextPressure` to the pure policy; settles each turn on `turn/end`; owns the settings; judges once immediately on `session/created` (new **or** restored from storage); folds `compaction/end` and `request/header` into the decision; registers `GET /api/context-guard/state`; extrapolates the verdict to WeChat when configured; and **drafts the handoff block** when a threshold is crossed |
+| **client** (`lib/client.js`, a hand-written single-file bundle) | Session-header **badge** (live occupancy; numbers only, never speaks) plus a **one-shot banner** on threshold crossing (ratio + next step + pointer to the handoff document); on boot it reads the host settings back from the state route (a three-layer merge of **built-in defaults < host truth < escape hatch**) |
 
-行为要点：
+Behaviour notes:
 
-- **绝不 mid-turn 提示**：那一轮已经发出去了，提示没有意义。
-- **只响一次**：双档 + 迟滞（回落到 `warn − hysteresis` 才重新武装）+ 边沿触发 + 冷却 N 轮。
-- **fail-closed**：没有分母（`contextWindow` 缺席）就不判定，徽标显式显示 `ctx —`，**不假装 0%**。
+- **Never mid-turn**: that request is already on the wire, so a warning there would be pointless.
+- **Speaks once**: two levels + hysteresis (re-armed only after falling back below `warn − hysteresis`) + edge triggering + a cooldown of N turns.
+- **fail-closed**: with no denominator (`contextWindow` absent) it does not judge at all, and the badge explicitly shows `ctx —` instead of pretending to be 0%.
 
-## 安装
+## Install
 
 ```bash
 npm i dsh-context-guard
 ```
 
-DSH 会按包内 `dsh.bundle.patch`（`cordis.patch.yml`）把宿主半边挂上；浏览器半边由 `dsh.client` 声明注入。
+DSH mounts the host half through the package's `dsh.bundle.patch` (`cordis.patch.yml`); the browser half is declared for injection by `dsh.client`.
 
-**本地开发时**（不发布、用 junction 挂进某个 profile）也常见：
+**During local development** (not published, mounted into a profile with a junction) this is also common:
 
 ```powershell
-# 把仓库挂进目标 profile 的 node_modules（路径按你的环境替换）
+# junction the repo into the target profile's node_modules (replace the paths for your environment)
 New-Item -ItemType Junction `
   -Path   $env:DSH_HOME\profiles\<profile>\node_modules\dsh-context-guard `
-  -Target <仓库路径>
+  -Target <repo path>
 ```
 
-然后在那个 profile 的 `cordis.patch.yml`（用户 patch 层）末尾加一条 `insert`：
+Then append an `insert` entry to that profile's `cordis.patch.yml` (the user patch layer):
 
 ```yaml
 - insert:
@@ -62,47 +58,47 @@ New-Item -ItemType Junction `
       name: dsh-context-guard
 ```
 
-> ⚠️ 不要把这个包写进 profile 的 `dsh.profile.bundles` —— 会报 `cannot resolve profile bundle`。
-> ⚠️ junction 挂载后，Node 从**真实路径**往上找 `node_modules` ⇒ 仓库里要有它自己的依赖（或让 DSH 从安装位置解析）。
+> ⚠️ Do not put this package into the profile's `dsh.profile.bundles` — that fails with `cannot resolve profile bundle`.
+> ⚠️ With a junction, Node resolves `node_modules` upward from the **real path** ⇒ the repo needs its own dependencies (or let DSH resolve them from the install location).
 
-## 配置项
+## Configuration
 
-设置页可改，全部即时生效；`config` 字段都是 volatile ⇒ 改完**不用重启**（但改**源码**要重启，见下）。
+Editable on the settings page, all applied live; every `config` field is volatile ⇒ changing them needs **no restart** (changing **source**, however, does — see below).
 
-| 字段 | 默认 | 范围 | 含义 |
+| Field | Default | Range | Meaning |
 |---|---|---|---|
-| `enabled` | `true` | bool | 总开关 |
-| `warnRatio` | `0.45` | 0.1–0.95 | 「该收尾了」的占用率（`projectedTokens / contextWindow`） |
-| `hardRatio` | `0.60` | 0.1–1 | 「该换会话了」；必须 > `warnRatio` |
-| `hysteresisRatio` | `0.05` | 0–0.2 | 迟滞：回落到 `warn − 此值` 以下才重新武装 |
-| `cooldownTurns` | `5` | 0–100 | 跨档后静默多少轮 |
-| `onResume` | `true` | bool | 进入一个已经很高的历史会话时也提示 |
-| `respectCompaction` | `true` | bool | 自动压缩正在压水位时不提示换会话 |
-| `crossSessionTrend` | `true` | bool | 统计窗口内几个会话撞过线，用于升级措辞 |
-| `trendWindowHours` | `24` | 1–168 | 趋势统计窗口（小时） |
-| `trendEscalateAt` | `3` | 2–20 | 窗口内撞 hard 的会话数达到此值则升级措辞 |
-| `pushChannel` | `none` | `none`\|`wechat` | 外推通道（默认关） |
-| `pushMinLevel` | `hard` | `warn`\|`hard` | 从哪一档开始外推 |
-| `pushCooldownMinutes` | `10` | 0–1440 | 两次外推的全局最小间隔 |
-| `handoverOnWarn` | `true` | bool | 跨过 `warnRatio` 时自动起草交接草稿 |
-| `handoverPath` | `HANDOVER.md` | string | 相对**会话工作目录**，或绝对路径 |
-| `handoverRefreshPercent` | `5` | 1–25 | 水位每再涨这么多点刷新一次草稿 |
-| `handoverTurns` | `6` | 1–20 | 草稿里带几轮「诉求 / 回应」摘要 |
-| `handoverFiles` | `12` | 1–50 | 草稿里带几个最近写过的文件 |
+| `enabled` | `true` | bool | Master switch |
+| `warnRatio` | `0.45` | 0.1–0.95 | Occupancy (`projectedTokens / contextWindow`) at which "time to wrap up" fires |
+| `hardRatio` | `0.60` | 0.1–1 | "Time to start a new session"; must be > `warnRatio` |
+| `hysteresisRatio` | `0.05` | 0–0.2 | Hysteresis: re-arm only after falling back below `warn − this value` |
+| `cooldownTurns` | `5` | 0–100 | How many turns of silence follow a level change |
+| `onResume` | `true` | bool | Also warn when entering an already-high historical session |
+| `respectCompaction` | `true` | bool | Stay quiet while automatic compaction is already reducing the level |
+| `crossSessionTrend` | `true` | bool | Count how many sessions crossed the line within the window, to escalate wording |
+| `trendWindowHours` | `24` | 1–168 | Trend window (hours) |
+| `trendEscalateAt` | `3` | 2–20 | Escalate wording when this many sessions hit hard inside the window |
+| `pushChannel` | `none` | `none`\|`wechat` | Extrapolation channel (off by default) |
+| `pushMinLevel` | `hard` | `warn`\|`hard` | Level from which extrapolation starts |
+| `pushCooldownMinutes` | `10` | 0–1440 | Global minimum interval between two extrapolations |
+| `handoverOnWarn` | `true` | bool | Auto-draft the handoff block once `warnRatio` is crossed |
+| `handoverPath` | `HANDOVER.md` | string | Relative to the **session working directory**, or an absolute path |
+| `handoverRefreshPercent` | `5` | 1–25 | Refresh the draft every additional N percentage points of occupancy |
+| `handoverTurns` | `6` | 1–20 | How many "prompt / reply" previews the draft carries |
+| `handoverFiles` | `12` | 1–50 | How many recently written files the draft carries |
 
-> `warnRatio` 的 schema 下限是 **0.1**：配 `0.05` 之类的值会让整个插件挂不上
-> （`ValidationError: invalid config: $.warnRatio expected number >= 0.1`，状态路由随之 404）。
+> The schema floor for `warnRatio` is **0.1**: a value like `0.05` stops the entire plugin from mounting
+> (`ValidationError: invalid config: $.warnRatio expected number >= 0.1`, and the state route then 404s).
 
-## 宿主状态路由
+## Host state route
 
-`GET /api/context-guard/state` —— 浏览器半边据此拿真源阈值，也是排障入口。
+`GET /api/context-guard/state` — the browser half reads the true thresholds from it, and it doubles as the debugging entry point.
 
 ```jsonc
 {
   "plugin": "context-guard",
   "at": 1790000000000,
-  "config": { /* 上面那张表；handoverPath 只回相对名/文件名，绝不回绝对路径 */ },
-  "trend": { /* 跨会话趋势汇总，crossSessionTrend=false 时为 undefined */ },
+  "config": { /* the table above; handoverPath returns a relative/file name only, never an absolute path */ },
+  "trend": { /* cross-session trend summary; undefined when crossSessionTrend=false */ },
   "recent": [ { "sessionId": "…", "level": "warn|hard", "ratioPercent": 52, "title": "…", "body": "…" } ],
   "push": { "channel": "none", "minLevel": "hard", "cooldownMinutes": 10,
             "lastAt": 0, "lastResult": null, "sent": 0, "failed": 0, "skipped": 0, "history": [] },
@@ -113,9 +109,9 @@ New-Item -ItemType Junction `
 }
 ```
 
-## 自动交接草稿
+## Automatic handoff draft
 
-跨过 `warnRatio`（或打开一个已经超过该阈值的会话）时，插件在会话工作目录里维护一块**带标记**的草稿：
+When `warnRatio` is crossed (or a session already above it is opened), the plugin maintains a **marked** draft block in the session working directory:
 
 ```markdown
 <!-- dsh-context-guard:begin session-… -->
@@ -124,73 +120,52 @@ New-Item -ItemType Junction `
 <!-- dsh-context-guard:end -->
 ```
 
-- **幂等**：一个会话一块，刷新时整块替换，**不重复追加**；人工可以整块删除。
-- **只写机器事实、不写结论** —— 插件不知道你干了什么。请让 agent 在「待补」里写结论/坑/下一步，
-  或折进你自己的交接文档后把整块删掉。
-- **素材从哪来（2026-09-30 真机核实，v0.3.1 修正）**：机器事实取自**宿主状态真源** ——
-  注册表 `sessionProjections.stateOf(session, key)`，而**不是**投影变更推送的 **wire 视图**。
-  原因：`contextTimeline`（由 `dsh-context` 这类插件注册）的 wire 视图在按需 detail 通道启用后
-  是个 **slim head**：水位/规模/工具分布/花费都在，**唯独没有 `fileOps`** —— 重集合只存在于单元
-  状态里。v0.3.0 只读 wire 视图 ⇒「改过的文件」永远是 0 个（**恢复会话与会话运行中完全一样**，
-  不是两条路的差别）；另外 `turnOutline` 的 wire 视图是**数组**而 v0.3.0 按 `{turns}` 读 ⇒
-  「最近几轮」永远印「宿主没有提供」。两处均已修，并各有单测/自检守着。
-- **依赖与降级**：`fileOps`、工具分布依赖注册 `contextTimeline` 的插件（如 `dsh-context`）；
-  花费依赖 `tokenCost`（如 `dsh-damage-pulse`）。它们缺席时对应段落显示为空 —— 插件**不编造**
-  也不失败；宿主注册表若没有 `stateOf`（老版本），自动退回 wire 视图（即 v0.3.0 的行为）。
+(The block's labels are Chinese because that is what the plugin writes today — the facts themselves are language-neutral: a machine-facts table, the files changed, the last few turns, and empty slots.)
 
-## 阈值与设计取舍（为什么是 0.45 / 0.60）
+- **Idempotent**: one block per session, replaced wholesale on refresh, **never appended twice**; a human can delete the whole block.
+- **Machine facts only, no conclusions** — the plugin has no idea what you did. Have your agent fill in the conclusions / pitfalls / next steps in the "to be filled in" slots, or fold the block into your own handoff document and delete it.
+- **Where the material comes from (verified on a live machine 2026-09-30; fixed in v0.3.1)**: the machine facts come from the **host state source of truth** — the registry's `sessionProjections.stateOf(session, key)` — and **not** from the **wire view** pushed by projection changes.
+  Why: once the on-demand detail channel is armed, the wire view of `contextTimeline` (registered by plugins such as `dsh-context`) is a **slim head**: occupancy, size, tool mix and cost are all there, but **`fileOps` is not** — the heavy collections exist only in the unit state. v0.3.0 read the wire view only ⇒ "files changed" was always 0 (**identical for a restored session and a running one**; it was never a difference between those two paths); and `turnOutline`'s wire view is an **array** while v0.3.0 read `{turns}` ⇒ "last few turns" always printed "host did not provide". Both are fixed now, each guarded by unit tests and the self-test.
+- **Dependencies and degradation**: `fileOps` and the tool mix depend on a plugin that registers `contextTimeline` (e.g. `dsh-context`); cost depends on `tokenCost` (e.g. `dsh-damage-pulse`). When they are absent, those sections render empty — the plugin **invents nothing** and does not fail. And if the host registry has no `stateOf` (older harness), it falls back to the wire view, i.e. v0.3.0 behaviour.
 
-- **占用率 = `projectedTokens / contextWindow`**（官方口径：**下一次**请求的 prompt 有多大，不含 output）。
-  一律用比率：换模型即换窗口。
-- **成本随占用率上升**：按官方定价把「每次调用成本」对占用率拟合，高档位每次调用约是空会话的数倍，
-  越晚收尾越贵；越早换会话省下的越多，代价只有一份交接（把它写短）。
-- **0.60 这个 hard 线是刻意早于平台自己的动作**：观测到的会话峰值从未超过约 80%（平台自身会在 ~80% 处
-  compaction）。把 hard 放在 80% 会与它抢同一时刻，而 `respectCompaction: true` 又会在被压缩后抑制提示
-  ⇒ hard 档可能**永远不出声**。
-- 两档的分工：`warnRatio` = 开始收尾/写交接；`hardRatio` = 换会话。
+## Thresholds and the reasoning behind them (why 0.45 / 0.60)
 
-## 外推推送（微信，默认关）
+- **Occupancy = `projectedTokens / contextWindow`** (the official definition: how large the **next** request's prompt is, output excluded). Always a ratio: switch models and the window switches with it.
+- **Cost rises with occupancy**: fitting per-call cost against occupancy using official pricing, a call in the high band costs several times one in an empty session; wrapping up later costs more, and starting a new session earlier saves more at the price of exactly one handoff (so keep it short).
+- **The 0.60 hard line deliberately precedes the platform's own move**: observed session peaks never exceed about 80% (the platform compacts around there). Putting hard at 80% would race it for the same moment, and `respectCompaction: true` suppresses the warning after a compaction ⇒ the hard band might **never speak at all**.
+- Division of labour: `warnRatio` = start wrapping up / write the handoff; `hardRatio` = start a new session.
 
-`pushChannel: 'wechat'` 时，把同一句结论发给本机的 `wechatNotify` 服务（软依赖，通常由
-[`dsh-damage-pulse`](https://www.npmjs.com/package/dsh-damage-pulse) 一类插件提供）。
-通道缺席或发送失败只记状态（`push.lastResult.code === 'channel-absent'`、`failed++`），**不外溢异常**。
-推送是显式选择 —— 这个插件不会在你没要求的情况下往你手机里发消息。
+## Extrapolation push (WeChat, off by default)
 
-## 安全与隐私
+With `pushChannel: 'wechat'` the same verdict is sent to the local `wechatNotify` service (a soft dependency, usually provided by a plugin such as [`dsh-damage-pulse`](https://www.npmjs.com/package/dsh-damage-pulse)). A missing channel or a failed send is recorded as status only (`push.lastResult.code === 'channel-absent'`, `failed++`), and the exception **never escapes**. The push is an explicit choice — this plugin will not message your phone unless you ask it to.
 
-- **状态路由没有插件级认证**：它注册在宿主的 webServer 上（与 DSH Web 同一访问控制）。
-  插件侧做的防护是：**只回相对名/文件名**（绝不回本机绝对路径）、`Cache-Control: no-store`、
-  不发 CORS 头。**不要**把 DSH Web 暴露到 `0.0.0.0`。
-- **写文件的副作用**见文首警告；写入路径来自你自己的设置，不是远端输入。
-- **浏览器半边的调试把手** `window.__DSH_CONTEXT_GUARD__`：可读状态、可调档（`override()`），
-  但被 `Object.defineProperty` 固定为**不可整体替换**。它只在页面内可用，不提升任何权限
-  （那段代码本来就跑在你的 DSH Web 页面里）。
-- 插件不联网、不调用任何 LLM、不发送会话内容（除非你显式开微信外推）。
+## Security and privacy
 
-## 测试与本地验收
+- **The state route has no plugin-level authentication**: it is registered on the host webServer (the same access control as DSH Web). What the plugin does defend is: **relative/file names only** (never a local absolute path), `Cache-Control: no-store`, and no CORS headers. Do **not** expose DSH Web on `0.0.0.0`.
+- **The side effect of writing files** is the warning at the top; the write path comes from your own settings, never from remote input.
+- **The browser half's debug handle** `window.__DSH_CONTEXT_GUARD__` can read state and override levels (`override()`), but `Object.defineProperty` pins it so it **cannot be replaced wholesale**. It is available inside the page only and grants no privilege (that code already runs in your DSH Web page).
+- The plugin does not use the network, does not call any LLM, and does not send session content (unless you explicitly enable the WeChat extrapolation).
+
+## Tests and local acceptance
 
 ```bash
-npm test          # 单元测试 + "bundle 与源码逐字节同源"校验
-npm run build     # 重新生成 lib/client.js（改了 lib/client-source.js 或 lib/policy.mjs 后必须跑）
+npm test          # unit tests + the "bundle is byte-identical to source" check
+npm run build     # regenerate lib/client.js (required after changing lib/client-source.js or lib/policy.mjs)
 ```
 
-要求 Node `^22.19.0 || >=24.0.0`。
+Requires Node `^22.19.0 || >=24.0.0`.
 
-## 排障（都踩过，写下来别再犯）
+## Troubleshooting (every one of these was hit for real; written down so they are not repeated)
 
-1. **`.volatile()` 字段拿到的是引用，不是值**：`apply(ctx, config)` 里读 `config.warnRatio` 永远是 `undefined`
-   ⇒ 静默用默认值。必须逐字段 `isVolatile(v) ? v.get() : v`（见 `lib/policy.mjs` 的 `plainConfig()`）。
-   设置页显示 0.33、插件却按 0.45 判断，就是这么来的。
-2. **改了源码不会自愈**：运行中的实例**不重读** profile 的 `cordis.patch.yml`，也不重载已装载的模块
-   ⇒ 改配置或改源码后要**重启那个 dsh 进程**（浏览器半边相反：服务端按请求重读 bundle，刷新页面即新）。
-3. **`patchReload: live` 不是文件监视**：它管的是那一次组合，不是热重载。
-4. **junction 安装时 Node 按真实路径解析依赖** ⇒ 仓库里得有它自己的 `node_modules`（或让 DSH 从安装位置解析）。
-5. **`--profile` 是顶层旗标**：`dsh --profile <p> --port <n>` 对；`dsh web --profile <p>` 会报 `select a profile only once`。
+1. **A `.volatile()` field is a reference, not a value**: reading `config.warnRatio` inside `apply(ctx, config)` is always `undefined` ⇒ it silently falls back to the default. Read each field as `isVolatile(v) ? v.get() : v` (see `plainConfig()` in `lib/policy.mjs`). That is how the settings page can show 0.33 while the plugin judges at 0.45.
+2. **Source edits do not self-heal**: a running instance neither re-reads the profile's `cordis.patch.yml` nor reloads already-mounted modules ⇒ after changing config or source, **restart that dsh process** (the browser half is the opposite: the server re-reads the bundle per request, so a page refresh is enough).
+3. **`patchReload: live` is not a file watcher**: it governs that one composition, not hot reloading.
+4. **With a junction install, Node resolves dependencies from the real path** ⇒ the repo needs its own `node_modules` (or let DSH resolve them from the install location).
+5. **`--profile` is a top-level flag**: `dsh --profile <p> --port <n>` is correct; `dsh web --profile <p>` fails with `select a profile only once`.
 
-## 卸载
+## Uninstall
 
-删掉 profile 的 `cordis.patch.yml` 里那条 `insert`（以及设置页可能写在同文件里的 `- id: context-guard` 配置行），
-再删掉 profile 的 `node_modules/dsh-context-guard`，然后**重启那个 dsh 进程**。
+Delete that `insert` entry from the profile's `cordis.patch.yml` (and any `- id: context-guard` config entry the settings page may have written into the same file), remove the profile's `node_modules/dsh-context-guard`, then **restart that dsh process**.
 
 ## License
 
