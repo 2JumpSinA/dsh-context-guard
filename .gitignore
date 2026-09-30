@@ -23,3 +23,6 @@ Desktop.ini
 *.tgz
 *.dsh-context-guard.tmp
 !docs/*.png
+*.sha256
+*.zip
+*.bundle
