@@ -215,6 +215,22 @@ test('resolveHandoverPath：绝对路径原样；相对路径要 cwd；没有 cw
   assert.equal(resolveHandoverPath('D:\\proj', '   '), null);
 });
 
+// CI 在 ubuntu 上抓到过这个：`isAbsolute('D:\\other\\H.md')` 在 Linux 上是 false
+// ⇒ 被当相对路径拼成 'D:\\proj/D:\\other\\H.md'。反向也成立：win32 的 isAbsolute 不认 '/x'。
+// 所以「自带根」必须按跨平台语义判定，而不是交给 path.isAbsolute 一个函数。
+test('resolveHandoverPath：跨平台的绝对路径都要原样返回', () => {
+  // Windows 形态
+  assert.equal(resolveHandoverPath('/proj', 'D:\\other\\H.md'), 'D:\\other\\H.md');
+  assert.equal(resolveHandoverPath('/proj', 'C:/other/H.md'), 'C:/other/H.md');
+  assert.equal(resolveHandoverPath('/proj', '\\\\srv\\share\\H.md'), '\\\\srv\\share\\H.md');
+  // POSIX 形态（在 Windows 上跑时 isAbsolute('/x') 为 false，同样要认）
+  assert.equal(resolveHandoverPath('C:\\proj', '/home/x/H.md'), '/home/x/H.md');
+  // 真正的相对路径仍必须按 cwd 解析
+  assert.equal(resolveHandoverPath('/proj', 'docs/H.md'), join('/proj', 'docs/H.md'));
+  // 单字母目录不能被误判成盘符（“D:” 后面必须紧跟分隔符）
+  assert.equal(resolveHandoverPath('/proj', 'D:other.md'), join('/proj', 'D:other.md'));
+});
+
 test('writeHandoverBlock：写出、二次调用幂等（只有一块），且返回的 path 只有文件名', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'guard-ho-'));
   const file = join(dir, 'HANDOVER.md');
