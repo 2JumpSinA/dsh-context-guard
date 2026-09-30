@@ -355,6 +355,11 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
 
   const projectionsFor = () => {
     let listener = null;
+    /**
+     * 宿主状态真源：真实注册表的 `stateOf(session, key)` 返回**单元状态**，
+     * 比 onChanged 送来的 **wire 视图**更全（dsh-context 的 slim head 把 fileOps 砍掉了）。
+     */
+    const states = new Map();
     const projections = {
       onChanged(l) {
         listener = l;
@@ -363,8 +368,17 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
         };
       },
       snapshot: () => ({ asOfSeq: 0, values: {} }),
+      stateOf: (_session, key) => states.get(key),
     };
-    return { projections, fire: (s, p, key = 'contextPressure') => listener(s, key, p) };
+    // 第 4 个参数是**宿主状态**（与 wire 视图不同时给）：不给就与 wire 同值。
+    return {
+      projections,
+      fire: (s, p, key = 'contextPressure', state) => {
+        if (state !== undefined) states.set(key, state);
+        else if (!states.has(key)) states.set(key, p);
+        listener(s, key, p);
+      },
+    };
   };
 
   // 6a. 路由本体
@@ -468,12 +482,24 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
     fire(s, { calls: 42, cost: 1.234, lastActivity: Date.now() }, 'tokenCost');
     fire(s, { turns: 7, steps: 40 }, 'sessionStats');
     fire(s, { text: '阈值校准' }, 'title');
-    fire(s, {
+    // ⚠️ 真实形状（2026-09-30 第十一棒真机核实）：`contextTimeline` 的 **wire 视图**是
+    // dsh-context 的 slim head —— 有 contextWindow / timing，**没有 fileOps**；含 fileOps 的
+    // 重集合只在**宿主状态**里（只有注册表 `stateOf` 拿得到）。`turnOutline` 同理：wire 是数组，
+    // 状态才是 `{turns, draft}`。夹具按真实形状造 ⇒ 只读 onChanged 的实现会在这里挂。
+    const timelineHead = {
       contextWindow: 1_000_000,
       timing: { toolCalls: 12, tools: { pwsh: { calls: 9 }, edit: { calls: 3 } } },
+      counts: { turns: 1, steps: 7 },
+      detailRev: 9,
+    };
+    const timelineState = {
+      ...timelineHead,
       fileOps: [{ kind: 'write', tool: 'edit', path: 'lib/policy.mjs', added: 6, removed: 2, time: Date.now() }],
-    }, 'contextTimeline');
-    fire(s, { turns: [{ turn: 7, prompt: '把阈值改掉', response: '改完了' }] }, 'turnOutline');
+    };
+    fire(s, timelineHead, 'contextTimeline', timelineState);
+    const lastTurn = { turn: 7, prompt: '把阈值改掉', response: '改完了' };
+    fire(s, [lastTurn], 'turnOutline', { turns: [lastTurn], draft: '' });
+    check('夹具忠实：wire 视图（slim head）里确实没有 fileOps', timelineHead.fileOps === undefined);
 
     // 40%：低于 warn ⇒ 不起草
     fire(s, { projectedTokens: 400_000, contextWindow: 1_000_000 });
@@ -485,8 +511,8 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
     await new Promise((r) => setTimeout(r, 60));
     const first = existsSync(target) ? readFileSync(target, 'utf8') : '';
     check('跨过 warn 自动起草交接', first.includes(beginMarker('h1')) && first.includes('46.0%'), first.slice(0, 140));
-    check('草稿带「改过的文件」（来自 fileOps）', first.includes('lib/policy.mjs'));
-    check('草稿带最近一轮诉求/回应（来自 turnOutline）', first.includes('把阈值改掉') && first.includes('改完了'));
+    check('草稿带「改过的文件」（只有走 stateOf 才拿得到 fileOps）', first.includes('lib/policy.mjs'));
+    check('草稿带最近一轮诉求/回应（turnOutline 的 wire 是数组）', first.includes('把阈值改掉') && first.includes('改完了'));
     check('草稿带花费（来自 tokenCost）', first.includes('¥1.23'));
 
     // 48%：不足一个步进（5 点）⇒ 不重写

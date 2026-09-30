@@ -1,6 +1,6 @@
 {
   "name": "dsh-context-guard",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "DSH context-pressure guard: when a session's next request would carry a dangerously large prompt, tell the user at turn end to write the handoff and start a new session. Consumes the official token-meter contextPressure projection; injects no prompt, registers no model-facing tool, so its context tax is zero. v0.3: at 45% occupancy the host half auto-drafts a machine-facts handover block into the session working directory; v0.2 added the host state route and an opt-in (default off) WeChat push.",
   "type": "module",
   "main": "lib/index.js",

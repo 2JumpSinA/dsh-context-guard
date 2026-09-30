@@ -102,6 +102,42 @@ test('composeHandoverBlock：素材缺席不抛，且不假装有数据', () => 
   assert.match(block, /（未知）/);
 });
 
+test('recentTurns：wire 视图是数组、宿主状态是 {turns}，两种形状都收', () => {
+  const wire = [
+    { turn: 1, prompt: 'A', response: 'B' },
+    { turn: 2, prompt: 'C', response: 'D' },
+  ];
+  assert.deepEqual(recentTurns(wire).map((t) => t.turn), [1, 2]);
+  assert.deepEqual(recentTurns({ turns: wire, draft: 'x' }).map((t) => t.turn), [1, 2]);
+  assert.deepEqual(recentTurns(wire, 1).map((t) => t.turn), [2]);
+  assert.deepEqual(recentTurns(undefined), []);
+  assert.deepEqual(recentTurns({ turns: [] }), []);
+});
+
+test('composeHandoverBlock：slim head 无 fileOps ⇒ 该段如实报空，不编造', () => {
+  const block = composeHandoverBlock({
+    sessionId: 's3',
+    now: 1_790_000_000_000,
+    reading,
+    cwd: 'D:\\proj',
+    config: {},
+    material: {
+      // dsh-context 的 buildTimelineHead：有 timing / contextWindow / detailRev，**没有 fileOps**
+      contextTimeline: {
+        contextWindow: 1_000_000,
+        timing: { toolCalls: 5, tools: { pwsh: { calls: 5 } } },
+        detailRev: 9,
+      },
+      // wire 数组形状：以前读 `.turns` 会印「宿主没有提供」
+      turnOutline: [{ turn: 3, prompt: '把阈值改掉', response: '改完了' }],
+    },
+  });
+  assert.match(block, /（本次会话没有 `write` 类文件操作）/);
+  assert.match(block, /工具分布 \| pwsh 5/);
+  assert.match(block, /把阈值改掉/);
+  assert.match(block, /改完了/);
+});
+
 test('upsertHandoverBlock：没有则追加、有则整块替换（且不动别的会话的块）', () => {
   const blockA = `${beginMarker('a')}\nAAA\n${endMarker}`;
   const blockB = `${beginMarker('b')}\nBBB\n${endMarker}`;
