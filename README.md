@@ -134,19 +134,44 @@ Behaviour notes:
 > deprecated in favour of `dsh-completion-guard`). That command installs **their** plugin, not this one.
 > This plugin's name is scoped — **`@2jumpsina/dsh-context-guard`** — and is published on npm.
 
-Install from npm (recommended):
+### Install into DSH (recommended)
+
+`dsh plugin` is a thin wrapper around pnpm: it runs package management **inside the profile** and then
+registers the new bundle. One command, everything else is automatic:
+
+```powershell
+dsh plugin --profile web add @2jumpsina/dsh-context-guard
+```
+
+What DSH does for you afterwards (all verified on a live profile): adds the dependency to the
+profile's `package.json` · appends the package to `dsh.profile.bundles` — that is what makes it an
+actual profile layer · applies the package's `cordis.patch.yml` to mount the host half, and its
+`dsh.client` declaration to inject the browser half.
+
+⚠️ **Restart dsh afterwards.** Source changes do not hot-reload, and a newly installed layer is
+applied at boot.
+
+Installing the package is *not* the same as mounting it — `npm i` alone only puts files in
+`node_modules` and changes no profile.
+
+### Install from this repository instead
+
+```powershell
+dsh plugin --profile web add git+ssh://git@github.com/2JumpSinA/dsh-context-guard.git
+```
+
+Requires `git` on PATH and a GitHub SSH key. ⛔ The `github:` shorthand
+(`dsh plugin --profile web add github:2JumpSinA/dsh-context-guard`) resolves to an **HTTPS** clone,
+which is unreliable on some networks (it fails with a confusing git error and no hint about
+transport) — prefer the `git+ssh://` form or the npm package above.
+
+### Plain npm (no DSH underneath)
+
+If you are only fetching files and mounting them yourself:
 
 ```bash
 npm i @2jumpsina/dsh-context-guard
 ```
-
-Or straight from this repository (takes whatever the repository currently has):
-
-```bash
-npm i github:2JumpSinA/dsh-context-guard
-```
-
-DSH mounts the host half through the package's `dsh.bundle.patch` (`cordis.patch.yml`); the browser half is declared for injection by `dsh.client`.
 
 **During local development** (not published, mounted into a profile with a junction) this is also common:
 
@@ -296,7 +321,18 @@ Requires Node `^22.19.0 || >=24.0.0`.
 
 ## Uninstall
 
-Delete that `insert` entry from the profile's `cordis.patch.yml` (and any `- id: context-guard` config entry the settings page may have written into the same file), remove the profile's `node_modules\@2jumpsina\dsh-context-guard`, then **restart that dsh process**.
+**If you installed it with `dsh plugin add`** (the normal path): one command — the bundle entry and the
+dependency are reconciled away automatically — then **restart that dsh process**.
+
+```powershell
+dsh plugin --profile web remove @2jumpsina/dsh-context-guard
+```
+
+**If you mounted it by hand with a junction** (local development): delete that `insert` entry from the
+profile's `cordis.patch.yml` (and any `- id: context-guard` config entry the settings page may have
+written into the same file), remove the profile's `node_modules\@2jumpsina\dsh-context-guard`, then
+**restart that dsh process**. (Remove a junction with `cmd /c rmdir` — that deletes the *link*, not
+your repository.)
 
 ## License
 

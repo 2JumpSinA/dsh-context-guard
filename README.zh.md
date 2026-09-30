@@ -123,19 +123,40 @@ npm 包名：**`@2jumpsina/dsh-context-guard`** · [English](README.md)
 > 敲那条命令装到的是**他们的**插件，不是这个。本插件的包名是 scoped 的
 > **`@2jumpsina/dsh-context-guard`**，已发布到 npm。
 
-从 npm 安装（推荐）：
+### 装进 DSH（推荐）
+
+`dsh plugin` 只是 pnpm 的薄封装：它在 **profile 目录里**做包管理，然后把这个新 bundle 登记进
+profile。一条命令，其余全自动：
+
+```powershell
+dsh plugin --profile web add @2jumpsina/dsh-context-guard
+```
+
+DSH 随后会替你做好这些（都在真机 profile 上验证过）：把依赖写进该 profile 的 `package.json` ·
+把包名追加进 `dsh.profile.bundles` —— **这一步才是「它成了一层插件」** · 应用包内
+`cordis.patch.yml` 挂上宿主半边，并按 `dsh.client` 声明注入浏览器半边。
+
+⚠️ **装完要重启 dsh。** 源码改动不自愈，新装上的层在启动时才生效。
+
+⚠️ **「装包」≠「挂上」。** 单独 `npm i` 只把文件放进 `node_modules`，不会改任何 profile。
+
+### 从本仓库安装（想跑最新源码时）
+
+```powershell
+dsh plugin --profile web add git+ssh://git@github.com/2JumpSinA/dsh-context-guard.git
+```
+
+前提：机器上有 `git`，且 GitHub SSH 密钥已配好。⛔ 别用 `github:` 简写
+（`dsh plugin --profile web add github:2JumpSinA/dsh-context-guard`）—— 它会被解析成 **HTTPS** clone，
+在某些网络下会失败，而报错完全不提「传输方式」这回事。要用就走上面的 `git+ssh://` 或 npm 包名。
+
+### 纯 npm（不用 DSH 的包管理）
+
+只想把文件取下来、自己挂：
 
 ```bash
 npm i @2jumpsina/dsh-context-guard
 ```
-
-也可以直接从本仓库安装（走 GitHub，取的是仓库当前状态）：
-
-```bash
-npm i github:2JumpSinA/dsh-context-guard
-```
-
-DSH 会按包内 `dsh.bundle.patch`（`cordis.patch.yml`）把宿主半边挂上；浏览器半边由 `dsh.client` 声明注入。
 
 **本地开发时**（不发布、用 junction 挂进某个 profile）也常见：
 
@@ -302,8 +323,17 @@ npm run build     # 重新生成 lib/client.js（改了 lib/client-source.js 或
 
 ## 卸载
 
-删掉 profile 的 `cordis.patch.yml` 里那条 `insert`（以及设置页可能写在同文件里的 `- id: context-guard` 配置行），
+**如果是用 `dsh plugin add` 装的**（正规路径）：一条命令，登记与依赖会被自动对账清掉，
+然后**重启那个 dsh 进程**。
+
+```powershell
+dsh plugin --profile web remove @2jumpsina/dsh-context-guard
+```
+
+**如果是手工 junction 挂的**（本地开发）：删掉 profile 的 `cordis.patch.yml` 里那条 `insert`
+（以及设置页可能写在同文件里的 `- id: context-guard` 配置行），
 再删掉 profile 的 `node_modules\@2jumpsina\dsh-context-guard`，然后**重启那个 dsh 进程**。
+（用 `cmd /c rmdir` 删 junction：**只删链接、不要删到仓库本身**。）
 
 ## License
 
