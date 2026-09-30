@@ -50,6 +50,33 @@ And one real session, from the very repository this plugin was built in: **584 c
 which 98.6% was re-reading context and 0.17% was model output.** That is the failure shape being addressed here:
 no crash, no error message, just an invoice.
 
+### Why this guard is the cheap half of the trade
+
+The formula above has a shape worth spelling out. A session's total is
+
+```
+total ≈ Σ over turns ( prompt_i × unit_price(occupancy_i) )
+```
+
+and both factors move the **same way**: `prompt_i` grows monotonically with every turn, and the unit price
+itself rises with occupancy (measured above: **¥0.011/call at 0–10% → ¥0.045/call at 70–80%**). A session
+therefore does not get linearly more expensive as it runs, it gets **super-linearly** more expensive —
+which is why the last third of a long session can cost far more than the first third while containing the
+same number of turns.
+
+That is the entire reason this plugin is worth installing: **its marginal cost is exactly zero.**
+
+- It registers no model-facing tool, injects no prompt section, and sends no extra request ⇒ **it adds no
+  tokens to any request** — it does not appear in the ledger at all.
+- The only thing it ever costs you is the handoff at the end, and that handoff is not a fee paid to this
+  plugin: it is work you would have to do anyway, usually worse (from memory, after the session has
+  already been abandoned).
+- It speaks **at the turn boundary**. A warning inside a turn is useless — that prompt is already on the
+  wire and already paid for; a warning two turns later is an invoice you can no longer avoid.
+
+So the trade is not "spend money to save money". It is: **put a free readout on a bill you are already
+paying**, at the only moment when the number can still change the decision.
+
 ### Why nothing else already catches it
 
 - **The platform compacts; it does not negotiate.** Every observed session peaked at or below ~80%, which is
