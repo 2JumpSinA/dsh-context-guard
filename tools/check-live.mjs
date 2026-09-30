@@ -17,7 +17,7 @@ import { execFileSync } from 'node:child_process';
 import { STATE_ROUTE } from '../lib/policy.mjs';
 
 const PORT = process.argv[2] && /^\d+$/.test(process.argv[2]) ? process.argv[2] : '3080';
-const PKG = process.argv[3] ?? 'dsh-context-guard';
+const PKG = process.argv[3] ?? '@2jumpsina/dsh-context-guard';
 
 const psUrl = execFileSync(
   'C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe',

@@ -1,6 +1,6 @@
 /**
  * 把两半合成手写 client bundle：`lib/client.template.js` 的骨架 + `lib/policy.mjs` 的策略
- * + `lib/client-source.js` 的 UI ⇒ `lib/client.js`。
+ * + `lib/i18n.mjs` 的文案表 + `lib/client-source.js` 的 UI ⇒ `lib/client.js`。
  *
  * 为什么要有这一步：client 半边**没有构建链**（手写单文件 bundle，见 README 里的理由），
  * 但阈值策略必须与 host 半边共用**同一份**代码 —— 否则「两边各写一份、慢慢漂移」是迟早的事。
@@ -16,24 +16,50 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
 
 /**
- * policy 是纯 ESM；内联前把所有导出降级成同作用域声明，其余逐字保留。
+ * 共享模块（host 与 client 两边共用的那一份代码）**逐字内联**进 client 半边。
  *
- * 只动**行首**的导出关键字（`export const|function|class` 与尾部的 `export {…}`），
- * 不去碰注释与字符串里出现的 "export" 字样 —— 这正是下面那道自检要拦住的东西。
+ * ⚠️ 顺序即依赖顺序：`i18n.mjs` 在前（`policy.mjs` 的措辞要查它的表）。
+ * 新增一个共享模块时，**这里必须同时加一行**，否则 client bundle 会引到一个不存在的符号
+ * —— 「改了源码、页面还是旧文案」或「banner 就是不出现」都是这么来的。
  */
-function policySource() {
-  const raw = read('lib/policy.mjs');
-  let stripped = raw.replace(/^export (?=(?:const|let|var|function|class|async)\b)/gm, '');
+const SHARED_MODULES = [
+  { rel: 'lib/i18n.mjs', allowImports: [] },
+  { rel: 'lib/policy.mjs', allowImports: ['./i18n.mjs'] },
+];
+
+/**
+ * 内联前的降级：把跨模块 `import` 与所有导出降级成同作用域声明，其余逐字保留。
+ *
+ * `allowImports` 里列出的相对导入会被**删掉**（那个模块已经被内联进同一个作用域了）；
+ * 其余任何 import/export 都是错误 —— 共享模块必须零依赖，才能同时供两边内联。
+ * 只动**行首**的关键字，不去碰注释与字符串里出现的 "export" 字样。
+ */
+function moduleSource(rel, allowImports = []) {
+  const raw = read(rel);
+  const allowed = new Set(allowImports);
+  let stripped = raw.replace(/^import\s[^;]*?from\s+['"]([^'"]+)['"];?[ \t]*$/gm, (matched, spec) => {
+    if (allowed.has(spec)) return '';
+    throw new Error(`${rel} 里有不许内联的 import（${spec}）—— 共享模块必须零依赖，内联进 client 会直接语法错误`);
+  });
+  stripped = stripped.replace(/^export (?=(?:const|let|var|function|class|async)\b)/gm, '');
   stripped = stripped.replace(/^export \{[^}]*\};\s*$/gm, '');
   if (/^export /m.test(stripped)) {
-    throw new Error('policy.mjs 里还有没被处理的 import/export —— 内联进 client 会直接语法错误');
+    throw new Error(`${rel} 里还有没被处理的 import/export —— 内联进 client 会直接语法错误`);
   }
   if (/^import /m.test(stripped)) {
-    throw new Error('policy.mjs 不许有 import —— 它必须保持零依赖，才能同时供两边内联');
+    throw new Error(`${rel} 里还有没被处理的 import —— 共享模块必须零依赖，才能同时供两边内联`);
   }
   const renamed = renameCollisions(stripped);
   return renamed.replace(/^\s+$/gm, '').replace(/\n{3,}/g, '\n\n').trimEnd();
 }
+
+/** 所有共享模块拼成一段注入 `__POLICY__` 占位符（模板里那段就是「共享代码区」）。 */
+function sharedSource() {
+  return SHARED_MODULES.map(({ rel, allowImports }) => moduleSource(rel, allowImports))
+    .join('\n\n')
+    .trimEnd();
+}
+
 
 /**
  * ⚠️ 内联时会撞名的标识符，逐字改名后再注入。
@@ -74,7 +100,7 @@ export function generate() {
     .replace(/^\s*\/\*\*[\s\S]*?\*\/\s*(?=\n*(?:function|var|const))/g, (m) => m) // 保留文档注释
     .trimEnd();
   const out = template
-    .replace('__POLICY__', indent(policySource(), 4))
+    .replace('__POLICY__', indent(sharedSource(), 4))
     .replace('__UI__', indent(ui, 4));
   if (out.includes('__POLICY__') || out.includes('__UI__')) {
     throw new Error('模板占位符没被替换干净');

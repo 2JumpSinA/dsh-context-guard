@@ -21,7 +21,7 @@
 |---|---|
 | `check-live.mjs` | 对着**运行中**的实例只读检查：客户端模块图/ bundle 能否 materialize / 宿主状态路由是否应答 / 交接草稿面 |
 | `verify-client.mjs` | 浏览器半边真机验收（19 项，对着隔离实例跑），产出 `tools/out/client-verify.json` |
-| `selftest.mjs` | 假 ctx 真跑 `apply()`：契约、Config、软 inject、事件分派、外推、交接草稿（66 项） |
+| `selftest.mjs` | 假 ctx 真跑 `apply()`：契约、Config、软 inject、事件分派、外推、交接草稿、双语（72 项） |
 | `probe-boot.mjs` / `probe-slots.mjs` / `inspect-slots.mjs` / `dump-state.mjs` / `dump-dom.mjs` | 真机排障与席位探测 |
 
 ## 跑法要点

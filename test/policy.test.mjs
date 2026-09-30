@@ -157,6 +157,11 @@ test('enabled=false 时不该被调用方走到这里；describe 仍要给出正
   assert.match(warn.title, /收尾/);
   const en = describeSignal({ kind: 'enter', level: 'hard', ratio: 0.82, projectedTokens: 164_000, contextWindow: 200_000 }, { lang: 'en' });
   assert.match(en.body, /HANDOVER\.md/);
+  // 双语（§19.6）：en 是独立一整套措辞，不是「中文 + 英文混排」
+  assert.match(en.title, /start a new session/);
+  assert.match(en.body, /164K/);
+  assert.equal(en.lang, 'en', 'describe 要把语言带回去，pushText 才能说同一句话');
+  assert.doesNotMatch(en.body, /[\u3400-\u4dbf\u4e00-\u9fff]/, 'en 文案里不许混汉字');
 });
 
 test('跨会话趋势：同一会话同一档位只记一次；到阈值措辞升级', () => {
@@ -232,6 +237,14 @@ test('外推：正文与 UI 说同一句话，且指向交接文档', () => {
   // 缺字段也不许抛（通道永远不该因为措辞模块出问题而炸）
   assert.match(pushText({}), /DSH 上下文守卫/);
   assert.match(pushText(undefined), /DSH 上下文守卫/);
+  // 双语：语言跟着 `described.lang` 走（title/body 就是那一刻按那个语言生成的）
+  const enText = pushText(describeSignal({ kind: 'enter', level: 'hard', ratio: 0.85 }, { lang: 'en' }));
+  assert.match(enText, /^\[DSH context-guard\]/);
+  assert.match(enText, /start a new session/);
+  assert.doesNotMatch(enText, /[\u3400-\u4dbf\u4e00-\u9fff]/, 'en 推送正文里不许混汉字');
+  // 手工构造的 described（没有 lang）才看 opts.lang
+  assert.match(pushText({ title: 'T', body: 'B' }, { lang: 'en' }), /^\[DSH context-guard\] T\nB$/);
+  assert.match(pushText({ title: 'T' }), /^\[DSH 上下文守卫\] T$/);
 });
 
 test('宿主状态路由是两半边的共享契约，且档位序单调', () => {

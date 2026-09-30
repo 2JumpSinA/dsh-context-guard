@@ -7,4 +7,4 @@
 # cordis.patch.yml（用户 patch 层）末尾加一条 insert（照 dsh-plugin-census 的成法）。
 - insert:
     - id: context-guard
-      name: dsh-context-guard
+      name: '@2jumpsina/dsh-context-guard'

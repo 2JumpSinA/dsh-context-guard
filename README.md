@@ -1,12 +1,17 @@
 # dsh-context-guard
 
-English | [中文](README.zh.md)
+npm package: **`@2jumpsina/dsh-context-guard`** (not published) · [中文](README.zh.md)
 
 A [DeepSeek Harness](https://deepseek-harness.github.io/deepseek-harness/guide/quickstart) plugin that **tells you to wrap up and start a new session before the session gets too long**.
 
 It consumes the `contextPressure` projection that the official `dsh-token-meter` has already computed, and **after a turn has ended** it speaks up on two thresholds: "write the handoff into a document first, then start a new session." It then helps turn that sentence **into an action** — once the threshold is crossed it drafts a handoff block into the session working directory.
 
 **Context tax = 0**: it registers no model-facing tool, injects no prompt section, and sends no extra request. The host does the arithmetic, the UI does the talking.
+
+> ⚠️ **Not on npm — and the npm name `dsh-context-guard` is a third party's package.**
+> `npm i dsh-context-guard` installs **their** plugin (by `greenlv`), not this one. This repository's
+> package name is scoped: **`@2jumpsina/dsh-context-guard`** (also unpublished). Install from this
+> repository instead — see [Install](#install).
 
 ![Session-header badge (ctx 48%) and the one-shot banner — redacted screenshot, session content masked](docs/badge-and-banner.png)
 
@@ -19,6 +24,69 @@ It consumes the `contextPressure` projection that the official `dsh-token-meter`
   ⇒ **It may contain sensitive content** (file paths, fragments of your questions and replies), and **it may end up committed by git**.
 - Suggestions: add `HANDOVER.md` to your `.gitignore`; or point `handoverPath` at a location **outside any repository**; or simply set `handoverOnWarn: false`.
 - Boundaries: a missing parent directory is refused; an existing target that is not a text file (`.json`/`.yml`/…) is refused; a **symlink** pointing elsewhere is refused; writes are atomic (temp file + rename) with tight permissions (`0o600`). Any failure is recorded as status only — it **never affects** the badge, the banner, or the push.
+
+## Why this plugin has to exist
+
+**In one line**: a long session is not a technical failure, it is a **bill that grows every turn**. This plugin
+exists to put that bill in front of you at the one moment you can still act on it — after a turn has ended and
+before the next request goes out.
+
+### The problem is measurable
+
+Cost ≈ (average prompt size) × (number of calls) × (unit price). A long session pushes the first two factors up
+**at the same time**, and the unit price itself rises with occupancy. Measured against the ledger of the machine
+this plugin was calibrated on (its local session-projection cache: **84 sessions / 14 days**, ¥252.29
+self-reported) and the official DeepSeek pricing table:
+
+| Measurement | Value |
+|---|---|
+| Self-check (price table × `contextTimeline.cost`, against the ledger total) | ¥254.29 vs ¥252.29 ⇒ **0.8% deviation**; per-request rows cover 85.4% of the total |
+| Unit price by occupancy | **¥0.011/call** at 0–10% → **¥0.045/call** at 70–80% (**4.2×**) |
+| Where the historical spend sits | calls at **≥40%** occupancy: **37.4%** of spend · at **≥60%**: **20.0%** |
+| Session peaks | **75/75 sessions never exceed ~80%** (6 of them drop sharply at 79–80%) ⇒ the platform compacts around there |
+| Interruption cost, if the line is drawn at 40% / 50% / 60% | **0.78 / 0.57 / 0.50** prompts per day |
+
+And one real session, from the very repository this plugin was built in: **584 calls, 274M tokens, ¥31.66 — of
+which 98.6% was re-reading context and 0.17% was model output.** That is the failure shape being addressed here:
+no crash, no error message, just an invoice.
+
+### Why nothing else already catches it
+
+- **The platform compacts; it does not negotiate.** Every observed session peaked at or below ~80%, which is
+  exactly where DSH compacts on its own. Compaction is a safety net for the session, not a warning to you — by
+  the time it fires you have already paid for the whole climb.
+- **The model cannot be the meter.** `projectedTokens` is computed by `dsh-token-meter` from the real request;
+  the model cannot see how large its own prompt is, and a warning is only meaningful **after** a turn ends (that
+  turn's prompt is already on the wire). Worse, any mechanism that makes the model "mind the context" has to
+  inject a prompt section or register a tool — that is adding context tax to solve a context-tax problem.
+- **You have no readout.** Occupancy is observable, but "time to wrap up" is not one reading: it needs
+  hysteresis, a cooldown, edge triggering, cross-session counting, and it has to fire when you *open* an
+  already-full historical session. Nobody watches a percentage while working.
+
+### What it does instead — and deliberately does not
+
+- **Context tax = 0**: no model-facing tool, no prompt injection, no extra request. A guard against context bloat
+  must not itself consume context.
+- **It only consumes what the official meter already computed** — it does not re-measure, estimate or guess.
+- **It speaks once per level, at the end of a turn**: two levels + hysteresis + edge trigger + cooldown.
+- **fail-closed**: with no denominator it does not judge at all, and the badge shows `ctx —` instead of 0%.
+- **It turns the sentence into an action**: crossing `warnRatio` drafts a machine-facts handoff block (session,
+  occupancy, ledger cost, the files this session wrote, previews of the last few prompts/replies, plus
+  "to be filled in" slots) into the session working directory — zero LLM, zero extra request.
+- **Outbound push is opt-in** (`pushChannel: 'none'` by default). A prompt plugin has no business messaging your
+  phone unless you asked it to.
+
+### What this section does *not* claim
+
+- **The savings are a counterfactual upper bound, not a promise.** Replaying this machine's ledger: the 2741
+  calls made at ≥40% occupancy would have saved **¥59 (23%)** had they happened at 0–20%; the ≥60% batch would
+  have saved **¥34 (14%)**. Wrapping up is not free — it costs exactly one handoff. The only claim is that this
+  decision is better made with the number in front of you.
+- **The thresholds are a calibration, not an optimum.** 0.45 / 0.60 come from those 84 sessions; they are
+  defaults, and every one of them is configurable.
+- **The sample is one machine, one provider, two weeks.** Prices and compaction behaviour change.
+- **It does not judge whether your task is worth finishing.** It says one thing: continuing from here costs
+  several times more per turn than starting fresh — and here is the handoff draft.
 
 ## What it does
 
@@ -35,8 +103,16 @@ Behaviour notes:
 
 ## Install
 
+> ⚠️ **This plugin is not on npm, and its package name is scoped.** The unscoped name
+> `dsh-context-guard` belongs to a **third party** (`greenlv <lgr5945@gmail.com>`; latest `0.2.1`, now
+> deprecated in favour of `dsh-completion-guard`). Running `npm i dsh-context-guard` installs **their**
+> plugin, not this one. This repository uses `@2jumpsina/dsh-context-guard` and has never been published
+> to npm either — install from this repository.
+
+Install straight from the repository:
+
 ```bash
-npm i dsh-context-guard
+npm i github:2JumpSinA/dsh-context-guard
 ```
 
 DSH mounts the host half through the package's `dsh.bundle.patch` (`cordis.patch.yml`); the browser half is declared for injection by `dsh.client`.
@@ -46,7 +122,7 @@ DSH mounts the host half through the package's `dsh.bundle.patch` (`cordis.patch
 ```powershell
 # junction the repo into the target profile's node_modules (replace the paths for your environment)
 New-Item -ItemType Junction `
-  -Path   $env:DSH_HOME\profiles\<profile>\node_modules\dsh-context-guard `
+  -Path   $env:DSH_HOME\profiles\<profile>\node_modules\@2jumpsina\dsh-context-guard `
   -Target <repo path>
 ```
 
@@ -55,7 +131,7 @@ Then append an `insert` entry to that profile's `cordis.patch.yml` (the user pat
 ```yaml
 - insert:
     - id: context-guard
-      name: dsh-context-guard
+      name: '@2jumpsina/dsh-context-guard'
 ```
 
 > ⚠️ Do not put this package into the profile's `dsh.profile.bundles` — that fails with `cannot resolve profile bundle`.
@@ -68,6 +144,7 @@ Editable on the settings page, all applied live; every `config` field is volatil
 | Field | Default | Range | Meaning |
 |---|---|---|---|
 | `enabled` | `true` | bool | Master switch |
+| `locale` | `auto` | `auto`\|`zh`\|`en` | Copy language; `auto` detects per half — see [Language](#language) |
 | `warnRatio` | `0.45` | 0.1–0.95 | Occupancy (`projectedTokens / contextWindow`) at which "time to wrap up" fires |
 | `hardRatio` | `0.60` | 0.1–1 | "Time to start a new session"; must be > `warnRatio` |
 | `hysteresisRatio` | `0.05` | 0–0.2 | Hysteresis: re-arm only after falling back below `warn − this value` |
@@ -88,6 +165,29 @@ Editable on the settings page, all applied live; every `config` field is volatil
 
 > The schema floor for `warnRatio` is **0.1**: a value like `0.05` stops the entire plugin from mounting
 > (`ValidationError: invalid config: $.warnRatio expected number >= 0.1`, and the state route then 404s).
+
+## Language
+
+All user-visible copy is bilingual (Chinese + English): the banner, the handoff draft, host logs and
+the badge/banner UI text. Default is `auto`, and the two halves resolve it **separately** — they can see
+different clues, and the host side has no locale service to read at all:
+
+| Half | What `auto` looks at | Fallback |
+|---|---|---|
+| Browser (badge tooltip + banner) | `navigator.language`: `zh…` ⇒ Chinese, anything else ⇒ English | Chinese |
+| Host (handoff draft + logs) | whether that session's **first user input** contains Chinese characters (`titleInput`, read from the projection registry's host state via `stateOf`) | Chinese |
+
+- `locale: 'zh'` / `'en'` forces both halves and wins over the detection above.
+- **Settings-page field descriptions** are always written as `English / 中文` in one line: the DSH config
+  schema is static load-time metadata with no per-locale description mechanism, and the settings page
+  has no idea which session you are looking at. (If DSH ever grows per-locale descriptions, those
+  strings move into the string table and this note goes away.)
+- **Escape hatch**: when there is no session to look at (startup logs, settings page, the state route),
+  the host half reads `DSH_CONTEXT_GUARD_LOCALE=zh|en`; any other value is ignored.
+- Machine-facing surfaces stay English in every language: JSON keys on the state route, config field
+  names, and log `code`s. Only sentences meant for humans get translated.
+- The sample draft block further down is what a **Chinese** session produces; an English session renders
+  the same structure with English labels.
 
 ## Host state route
 
@@ -165,7 +265,7 @@ Requires Node `^22.19.0 || >=24.0.0`.
 
 ## Uninstall
 
-Delete that `insert` entry from the profile's `cordis.patch.yml` (and any `- id: context-guard` config entry the settings page may have written into the same file), remove the profile's `node_modules/dsh-context-guard`, then **restart that dsh process**.
+Delete that `insert` entry from the profile's `cordis.patch.yml` (and any `- id: context-guard` config entry the settings page may have written into the same file), remove the profile's `node_modules\@2jumpsina\dsh-context-guard`, then **restart that dsh process**.
 
 ## License
 

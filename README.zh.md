@@ -1,6 +1,6 @@
 # dsh-context-guard
 
-[English](README.md) | 中文
+npm 包名：**`@2jumpsina/dsh-context-guard`**（未发布） · [English](README.md)
 
 **会话太长就提醒你收尾换会话**的 [DeepSeek Harness](https://deepseek-harness.github.io/deepseek-harness/guide/quickstart) 插件。
 
@@ -8,6 +8,10 @@
 「先把交接写进文档，再开新会话」。它会顺着帮你把这句提示**变成动作** —— 跨过阈值时自动往会话工作目录起草一份交接草稿。
 
 **上下文税 = 0**：不注册任何 model-facing 工具、不注入 prompt 段落、不额外发请求。宿主算数，UI 说话。
+
+> ⚠️ **没有发布到 npm —— 而且 npm 上的 `dsh-context-guard` 是第三方的包。**
+> `npm i dsh-context-guard` 装到的是**他们的**插件（作者 `greenlv`），不是这个。本仓库的包名是
+> scoped 的：**`@2jumpsina/dsh-context-guard`**（同样没有发布）。请从本仓库安装（见[安装](#安装)）。
 
 ![会话头徽标（ctx 48%）与一次性 banner —— 截图为脱敏版，会话内容已打码](docs/badge-and-banner.png)
 
@@ -26,6 +30,56 @@
   目标是指向别处的**符号链接** ⇒ 拒绝；写入使用原子替换（临时文件 + rename）并收紧权限（`0o600`）。
   任何失败都只记录状态，**绝不影响**徽标 / banner / 推送。
 
+## 为什么需要它
+
+**一句话**：长会话不是技术故障，而是**每一轮都在涨的账单**。这个插件存在的意义，就是在你**还能行动的那一刻**
+把这张账单摆到面前 —— 一轮已经结束、下一次请求还没发出的那几秒。
+
+### 这个问题是可测量的
+
+成本 ≈（平均 prompt 大小）×（调用次数）×（单价）。长会话会把前两个因子**同时**推上去，而单价本身也随占用率上升。
+拿**标定这台机器**自己的账本（本地 session 投影缓存，**84 个会话 / 14 天**，自报 ¥252.29）对着官方价表核：
+
+| 测量项 | 数值 |
+|---|---|
+| 自检（价表 × `contextTimeline.cost`，对账本总额） | ¥254.29 vs ¥252.29 ⇒ **偏差 0.8%**；逐请求金额覆盖总额 **85.4%** |
+| 单价随占用率 | 0–10% **¥0.011/次** → 70–80% **¥0.045/次（4.2×）** |
+| 历史花费落在哪里 | **≥40%** 占用时的调用吃掉 **37.4%** 的花费；**≥60%** 吃掉 **20.0%** |
+| 会话峰值 | **75/75 个会话都不超过 ~80%**（其中 6 个在 79–80% 处骤降）⇒ 平台自己在那一带压缩 |
+| 打扰成本（线画在 40% / 50% / 60%） | 每天 **0.78 / 0.57 / 0.50** 次 |
+
+再举一次真实会话 —— 就发生在开发这个插件的仓库里：**584 次调用、2.74 亿 token、¥31.66，其中 98.6% 花在
+重读上下文，模型输出只占 0.17%。** 这正是它要对付的失败形态：不崩溃、不报错，只是一张发票。
+
+### 为什么别的机制接不住它
+
+- **平台会压缩，但不会跟你商量。** 观测到的会话峰值全都在 ~80% 以下，那正是 DSH 自己压缩的地方。压缩是会话的
+  安全网，不是给你的通知 —— 等它触发时，你已经为整段爬升付过钱了。
+- **模型自己当不了这个计量器。** `projectedTokens` 由 `dsh-token-meter` 从真实请求算出，模型看不到自己的 prompt
+  有多大；而提示只有在**一轮结束之后**才有意义（那一轮的 prompt 已经发出去了）。何况任何「让模型自己注意上下文」
+  的做法都要注入 prompt 段落或注册工具 —— 那等于给一个**上下文税问题**再加一笔上下文税。
+- **你手上没有读数。** 占用率可以看见，但「该收尾了」不是一次读数能定的：它需要迟滞、冷却、边沿触发、跨会话计数，
+  而且要在你**点进一个已经满了的历史会话**时就响。没人一边干活一边盯百分比。
+
+### 它做了什么 —— 以及刻意不做什么
+
+- **上下文税 = 0**：不注册 model-facing 工具、不注入 prompt 段落、不发额外请求。防上下文膨胀的东西，自己不能吃上下文。
+- **只消费官方计量器已经算好的数字**：不重复计量、不估算、不猜。
+- **每档只响一次，且只在一轮结束时**：双档 + 迟滞 + 边沿触发 + 冷却。
+- **fail-closed**：没有分母就完全不判定，徽标显示 `ctx —` 而不是假装 0%。
+- **把一句话变成动作**：跨过 `warnRatio` 就地起草一块机器事实草稿（会话、水位、账本花费、本会话写过的文件、
+  最近几轮的诉求 / 回应预览，外加「待补」空槽）写进会话工作目录 —— 零 LLM、零额外请求。
+- **外推推送是显式选择**（默认 `pushChannel: 'none'`）。提示插件没有资格在你没要求的情况下往你手机里发消息。
+
+### 这一节**不**声称什么
+
+- **省下的钱是反事实上界，不是承诺。** 拿本机账本重放：≥40% 占用时发生的那 2741 次调用，若都发生在 0–20%，
+  可省 **¥59（23%）**；≥60% 的那批可省 **¥34（14%）**。收尾不是免费的 —— 它恰好要付一次交接的成本。
+  这里只声称一件事：**把数字摆在面前时，这个决定能做得更好。**
+- **阈值是标定值，不是最优解。** 0.45 / 0.60 来自那 84 个会话；它们是默认值，且每一个都可配置。
+- **样本是单机、单 provider、两周。** 价格与压缩行为都会变。
+- **它不判断你的任务值不值得做完。** 它只说一句：从这里继续，每轮比重新开始贵好几倍 —— 交接草稿在这里。
+
 ## 它做什么
 
 | 半边 | 做什么 |
@@ -41,8 +95,15 @@
 
 ## 安装
 
+> ⚠️ **本插件不在 npm 上，而且它的包名是 scoped 的。** 不带 scope 的 `dsh-context-guard` 归**第三方**所有
+> （`greenlv <lgr5945@gmail.com>`；latest `0.2.1`，现已 deprecated 并改名为 `dsh-completion-guard`）。
+> 敲 `npm i dsh-context-guard` 装到的是**他们的**插件，不是这个。本仓库的包名是
+> `@2jumpsina/dsh-context-guard`，同样从未发布到 npm —— 请从本仓库安装。
+
+从本仓库安装：
+
 ```bash
-npm i dsh-context-guard
+npm i github:2JumpSinA/dsh-context-guard
 ```
 
 DSH 会按包内 `dsh.bundle.patch`（`cordis.patch.yml`）把宿主半边挂上；浏览器半边由 `dsh.client` 声明注入。
@@ -52,7 +113,7 @@ DSH 会按包内 `dsh.bundle.patch`（`cordis.patch.yml`）把宿主半边挂上
 ```powershell
 # 把仓库挂进目标 profile 的 node_modules（路径按你的环境替换）
 New-Item -ItemType Junction `
-  -Path   $env:DSH_HOME\profiles\<profile>\node_modules\dsh-context-guard `
+  -Path   $env:DSH_HOME\profiles\<profile>\node_modules\@2jumpsina\dsh-context-guard `
   -Target <仓库路径>
 ```
 
@@ -61,7 +122,7 @@ New-Item -ItemType Junction `
 ```yaml
 - insert:
     - id: context-guard
-      name: dsh-context-guard
+      name: '@2jumpsina/dsh-context-guard'
 ```
 
 > ⚠️ 不要把这个包写进 profile 的 `dsh.profile.bundles` —— 会报 `cannot resolve profile bundle`。
@@ -74,6 +135,7 @@ New-Item -ItemType Junction `
 | 字段 | 默认 | 范围 | 含义 |
 |---|---|---|---|
 | `enabled` | `true` | bool | 总开关 |
+| `locale` | `auto` | `auto`\|`zh`\|`en` | 文案语言；`auto` 由两半边各自推断（见「语言」一节） |
 | `warnRatio` | `0.45` | 0.1–0.95 | 「该收尾了」的占用率（`projectedTokens / contextWindow`） |
 | `hardRatio` | `0.60` | 0.1–1 | 「该换会话了」；必须 > `warnRatio` |
 | `hysteresisRatio` | `0.05` | 0–0.2 | 迟滞：回落到 `warn − 此值` 以下才重新武装 |
@@ -94,6 +156,26 @@ New-Item -ItemType Junction `
 
 > `warnRatio` 的 schema 下限是 **0.1**：配 `0.05` 之类的值会让整个插件挂不上
 > （`ValidationError: invalid config: $.warnRatio expected number >= 0.1`，状态路由随之 404）。
+
+## 语言 / Language
+
+所有给人看的文案都是双语的（中文 + 英文）：banner、草稿块、宿主日志，以及徽标 / banner 的 UI 文字。
+默认 `auto`，而两半边是**各自解析**的 —— 它们能看到的线索本来就不同，何况宿主半边根本没有 locale 服务可读：
+
+| 半边 | `auto` 看什么 | 兜底 |
+|---|---|---|
+| 浏览器（徽标 tooltip + banner） | `navigator.language`：以 `zh` 开头 ⇒ 中文，其余 ⇒ 英文 | 中文 |
+| 宿主（草稿块 + 日志） | 该会话**首条用户输入**里有没有汉字（`titleInput` —— 走注册表的宿主状态 `stateOf` 读，它没有 `wire`、`onChanged` 收不到） | 中文 |
+
+- 写 `locale: 'zh'` / `'en'` 可强制两半边都说同一种语言，压过上面的推断。
+- **设置页的字段说明**永远是「English / 中文」合并式一行：DSH 的 config schema 是加载期静态元数据，
+  没有 per-locale 描述机制，设置页也无从知道你在看哪个会话。（将来 DSH 支持按 locale 描述，
+  这些字符串就搬进文案表，这条注释随之删掉。）
+- **逃生阀**：没有会话可看时（启动日志、设置页、状态路由），宿主半边读环境变量
+  `DSH_CONTEXT_GUARD_LOCALE=zh|en`；其它取值一律忽略。
+- 面向机器的面在任何语言下都是英文：状态路由的 JSON 键名、config 字段名、日志 `code`。
+  被翻译的只有给人看的句子。
+- 下面那段草稿示例是**中文**会话产出的样子；英文会话结构完全一致，只是标签是英文。
 
 ## 宿主状态路由
 
@@ -192,7 +274,7 @@ npm run build     # 重新生成 lib/client.js（改了 lib/client-source.js 或
 ## 卸载
 
 删掉 profile 的 `cordis.patch.yml` 里那条 `insert`（以及设置页可能写在同文件里的 `- id: context-guard` 配置行），
-再删掉 profile 的 `node_modules/dsh-context-guard`，然后**重启那个 dsh 进程**。
+再删掉 profile 的 `node_modules\@2jumpsina\dsh-context-guard`，然后**重启那个 dsh 进程**。
 
 ## License
 

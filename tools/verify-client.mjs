@@ -27,7 +27,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = join(HERE, 'out');
 const PORT = process.argv[2] && /^\d+$/.test(process.argv[2]) ? process.argv[2] : '3099';
 const SCREENSHOT = process.argv.includes('--screenshot');
-const PKG = 'dsh-context-guard';
+const PKG = '@2jumpsina/dsh-context-guard';
 
 /**
  * 取探针实例的 token。
@@ -120,7 +120,7 @@ const main = async () => {
       batches: (boot.batches ?? []).length,
     };
   }, PKG);
-  check('客户端模块图里有 dsh-context-guard 这一行', graph?.found === true, JSON.stringify(graph?.row ?? graph));
+  check('客户端模块图里有 @2jumpsina/dsh-context-guard 这一行', graph?.found === true, JSON.stringify(graph?.row ?? graph));
   evidence['boot'] = graph;
 
   // 2. bundle 能被服务（HTTP 200 + 是那个经典 script 包裹）
@@ -129,7 +129,7 @@ const main = async () => {
     bundleStatus = await page.evaluate(async (u) => {
       const res = await fetch(u, { credentials: 'same-origin' });
       const text = await res.text();
-      return { status: res.status, bytes: text.length, hasRegistration: text.includes('__ModuleLoader__.load'), hasId: text.includes('dsh-context-guard') };
+      return { status: res.status, bytes: text.length, hasRegistration: text.includes('__ModuleLoader__.load'), hasId: text.includes('@2jumpsina/dsh-context-guard') };
     }, graph.row.url);
   }
   check('client bundle 被服务且是合法注册包裹', bundleStatus?.status === 200 && bundleStatus?.hasRegistration === true && bundleStatus?.hasId === true, JSON.stringify(bundleStatus));
@@ -426,14 +426,19 @@ const main = async () => {
   }
 
   // 5. banner（warn 压到 1% 后，任何非零占用都该跨档）
+  // ⚠️ 文案断言按 **locale 分别**写：§19.6 之后 client 半边会按 `navigator.language` 说英文，
+  //    中文系统上仍应是「知道了」；写死一种语言会把双语功能变成验收红灯。
   const banner = await page.evaluate(() => {
     const el = document.querySelector('[data-dsh-context-guard="banner"]');
     if (!el) return null;
     return {
       text: (el.textContent ?? '').trim().slice(0, 200),
       level: el.getAttribute('data-level'),
-      hasKnowIt: /知道了/.test(el.textContent ?? ''),
+      hasKnowIt: /知道了|Got it/.test(el.textContent ?? ''),
       mentionsHandoff: /HANDOVER\.md/.test(el.textContent ?? ''),
+      locale: (window.__DSH_CONTEXT_GUARD__ && window.__DSH_CONTEXT_GUARD__.store && window.__DSH_CONTEXT_GUARD__.store.locale())
+        ? window.__DSH_CONTEXT_GUARD__.store.locale()
+        : null,
     };
   });
   evidence['banner'] = banner;
@@ -455,7 +460,7 @@ const main = async () => {
   if (banner !== null) {
     check('跨越档位后出现了 banner', true, JSON.stringify(banner));
     check('banner 指向交接文档', banner.mentionsHandoff === true, banner.text);
-    check('banner 带「知道了」按钮', banner.hasKnowIt === true, banner.text);
+    check('banner 带「知道了 / Got it」按钮', banner.hasKnowIt === true, banner.text);
   } else if (headerBlank) {
     notes.push('没有活跃会话 ⇒ 还没有 contextPressure 投影，banner 这一条**未实判**');
   } else {

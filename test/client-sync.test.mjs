@@ -21,7 +21,7 @@ import { generate } from '../scripts/build-client.mjs';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
 
-test('lib/client.js 与 policy.mjs + client-source.js 逐字节同源', () => {
+test('lib/client.js 与 i18n.mjs + policy.mjs + client-source.js 逐字节同源', () => {
   const generated = generate();
   const onDisk = read('lib/client.js');
   assert.equal(
@@ -39,6 +39,114 @@ test('bundle 里没有 ESM 语法（经典 script 会直接语法错误）', () 
   assert.doesNotMatch(body, /import\.meta/, 'import.meta 在经典 script 里不存在');
   assert.doesNotMatch(body, /\bawait\b/, '顶层 await 不允许');
 });
+
+/**
+ * 只留**真代码**：注释、单/双引号字符串、模板字面量的文本部分与其 `${…}` 插值全部抹成空白
+ * （换行保留，位置不漂移）。
+ *
+ * 为什么需要这一步：本护栏找的是「自由标识符调用」，而 §19.6 之后 bundle 里内联了一整张
+ * **双语文案表** —— 英文句子里的 `WeChat (from level hard)`、`(unknown)`、`(untitled)`
+ * 长得全都像函数调用。不剥字面量，这条护栏就从「防内联改名事故」退化成「禁止文案里出现括号」，
+ * 而真正的改名事故（`describe` → 半边别名 `describeSignal`）发生在模板之外，照样会被逮到。
+ *
+ * 模板的 `${…}` 用**嵌套计数**处理（回到代码模式），不是简单找下一个反引号 —— 文案表里
+ * `\`…${v.body ? \`\n${v.body}\` : ''}\`` 这种嵌套模板真实存在，草率实现会把半个文件当字符串吃掉。
+ */
+function codeOnly(source) {
+  const out = [];
+  const stack = [];
+  let i = 0;
+  const n = source.length;
+  while (i < n) {
+    const ch = source[i];
+    const next = source[i + 1];
+    const top = stack.length > 0 ? stack[stack.length - 1] : null;
+    if (top !== null && top.expr === false) {
+      // —— 模板字面量的文本部分
+      if (ch === '\\') {
+        out.push('  ');
+        i += 2;
+        continue;
+      }
+      if (ch === '`') {
+        out.push(' ');
+        stack.pop();
+        i += 1;
+        continue;
+      }
+      if (ch === '$' && next === '{') {
+        out.push('  ');
+        top.expr = true;
+        top.depth = 0;
+        i += 2;
+        continue;
+      }
+      out.push(ch === '\n' ? '\n' : ' ');
+      i += 1;
+      continue;
+    }
+    if (ch === '/' && next === '/') {
+      while (i < n && source[i] !== '\n') {
+        out.push(' ');
+        i += 1;
+      }
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      out.push('  ');
+      i += 2;
+      while (i < n && !(source[i] === '*' && source[i + 1] === '/')) {
+        out.push(source[i] === '\n' ? '\n' : ' ');
+        i += 1;
+      }
+      if (i < n) {
+        out.push('  ');
+        i += 2;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      out.push(' ');
+      i += 1;
+      while (i < n) {
+        if (source[i] === '\\') {
+          out.push('  ');
+          i += 2;
+          continue;
+        }
+        if (source[i] === ch) break;
+        out.push(source[i] === '\n' ? '\n' : ' ');
+        i += 1;
+      }
+      if (i < n) {
+        out.push(' ');
+        i += 1;
+      }
+      continue;
+    }
+    if (ch === '`') {
+      out.push(' ');
+      stack.push({ expr: false, depth: 0 });
+      i += 1;
+      continue;
+    }
+    if (top !== null && top.expr === true) {
+      if (ch === '{') top.depth += 1;
+      else if (ch === '}') {
+        if (top.depth === 0) {
+          out.push(' ');
+          top.expr = false;
+          i += 1;
+          continue;
+        }
+        top.depth -= 1;
+      }
+    }
+    out.push(ch);
+    i += 1;
+  }
+  return out.join('');
+}
 
 /** 收集 bundle 顶层用到的「自由标识符」里那些既没声明、也不是 JS 内建/全局的名字。 */
 function undefinedFreeIdentifiers(bundle) {
@@ -76,7 +184,7 @@ function undefinedFreeIdentifiers(bundle) {
     'in', 'of', 'else', 'try', 'finally', 'throw', 'delete', 'void', 'instanceof', 'case', 'break', 'continue',
   ]);
   const used = new Set();
-  const code = bundle.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  const code = codeOnly(bundle);
   for (const m of code.matchAll(/(^|[^.\w$'"])([A-Za-z_$][\w$]*)\s*\(/g)) used.add(m[2]);
   const missing = [];
   for (const name of used) {
@@ -151,8 +259,12 @@ test('设置字段全部 volatile（否则 dsh-settings 不生成设置页）', 
   const host = read('lib/index.js');
   const schemaBlock = host.slice(host.indexOf('export const Config'), host.indexOf('export function normalizeConfig'));
   assert.ok(schemaBlock.length > 0, '找不到 Config');
-  const fields = [...schemaBlock.matchAll(/^\s{2}(\w+):\s*Schema\.(boolean|number|string)\(/gm)].map((m) => m[1]);
+  // ⚠️ `Schema.<任意构造器>` —— **别再把 `union` 漏掉**（2026-09-30 修）：原来的白名单
+  // `(boolean|number|string)` 不匹配 `Schema.union([...])`，于是 `locale` 这个 union 字段
+  // 静默不在覆盖里，「漏写 .volatile() ⇒ 设置页整页不生成」这条护栏对它形同虚设。
+  const fields = [...schemaBlock.matchAll(/^\s{2}(\w+):\s*Schema\.(\w+)\(/gm)].map((m) => m[1]);
   assert.ok(fields.length >= 8, `只解析出 ${fields.length} 个字段，是不是 schema 结构改了`);
+  assert.ok(fields.includes('locale'), `字段集合里应当有 locale（实际：${fields.join(',')}）`);
   for (const field of fields) {
     const fieldBlock = schemaBlock.slice(schemaBlock.indexOf(`  ${field}:`));
     const nextField = fieldBlock.slice(1).search(/^\s{2}\w+:\s*Schema\./m);

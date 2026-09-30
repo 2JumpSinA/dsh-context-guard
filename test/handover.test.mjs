@@ -87,6 +87,45 @@ test('composeHandoverBlock：带标记 + 机器事实 + 待补空槽', () => {
   assert.match(block, /- \[ \] 结论：/);
 });
 
+test('composeHandoverBlock：locale=en 时整块英文（§19.6 的落点）', () => {
+  const block = composeHandoverBlock({
+    sessionId: 's1',
+    now: 1_790_000_000_000,
+    reading,
+    cwd: 'D:\\proj',
+    locale: 'en',
+    config: { handoverTurns: 2, handoverFiles: 3 },
+    material: {
+      title: 'threshold calibration',
+      identity: { createdAt: 1_789_000_000_000 },
+      tokenCost: { calls: 42, cost: 1.234, lastActivity: 1_790_000_000_000 },
+      sessionStats: { turns: 7 },
+      contextTimeline: {
+        contextWindow: 1_000_000,
+        timing: { toolCalls: 12, tools: { pwsh: { calls: 9 } } },
+        fileOps: [{ kind: 'write', tool: 'edit', path: 'lib/policy.mjs', added: 6, removed: 2, time: 1 }],
+      },
+      turnOutline: { turns: [{ turn: 7, prompt: 'drop the ratio', response: 'done' }] },
+    },
+  });
+  // 结构照旧：标记、机器事实、待补空槽
+  assert.ok(block.startsWith(beginMarker('s1')));
+  assert.ok(block.trimEnd().endsWith(endMarker));
+  assert.match(block, /\*\*52\.0%\*\*/);
+  assert.match(block, /¥1\.23/);
+  assert.match(block, /lib\/policy\.mjs/);
+  // 外框是英文的
+  assert.match(block, /Auto handoff draft/);
+  assert.match(block, /\| Item \| Value \|/);
+  assert.match(block, /\*\*To fill in \(by the agent\)\*\*/);
+  assert.match(block, /- \[ \] Conclusions:/);
+  // 用户自己写的内容（标题 / 诉求）必须原样透传，不许被语言层改写
+  assert.match(block, /threshold calibration/);
+  assert.match(block, /drop the ratio/);
+  // 整块不许混汉字
+  assert.doesNotMatch(block, /[\u3400-\u4dbf\u4e00-\u9fff]/);
+});
+
 test('composeHandoverBlock：素材缺席不抛，且不假装有数据', () => {
   const block = composeHandoverBlock({
     sessionId: 's2',
@@ -100,6 +139,21 @@ test('composeHandoverBlock：素材缺席不抛，且不假装有数据', () => 
   assert.match(block, /（本次会话没有 `write` 类文件操作）/);
   assert.match(block, /（宿主没有提供 `turnOutline`）/);
   assert.match(block, /（未知）/);
+  // 同样「没数据」的话，en 版要说得一样明确（fail-closed 的措辞是双语各一套，不是照抄中文）
+  const en = composeHandoverBlock({
+    sessionId: 's2',
+    now: 1_790_000_000_000,
+    reading: { known: false, ratio: null },
+    material: {},
+    config: {},
+    cwd: null,
+    locale: 'en',
+  });
+  assert.match(en, /no data \(fail-closed; not pretending it is 0%\)/);
+  assert.match(en, /\(no `write` file operations in this session\)/);
+  assert.match(en, /\(the host did not provide `turnOutline`\)/);
+  assert.match(en, /\(untitled\)/);
+  assert.match(en, /\(unknown\)/);
 });
 
 test('recentTurns：wire 视图是数组、宿主状态是 {turns}，两种形状都收', () => {
