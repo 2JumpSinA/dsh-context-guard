@@ -1,0 +1,4 @@
+# 文本文件统一 LF；Windows 上不要把 CRLF 带进仓库
+* text=auto eol=lf
+*.png binary
+*.tgz binary

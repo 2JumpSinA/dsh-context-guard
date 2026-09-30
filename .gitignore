@@ -1,0 +1,25 @@
+# —— 凭据与探针产物（最优先）——
+# PowerShell 的 `*>` 重定向会把 daemon banner（含 ?token= 登录凭据）写进日志 ⇒ 永不提交
+tools/out/
+*.log
+probe-*.log
+*.jsonl
+*.png
+
+# —— 插件自己会写的文件（会话工作目录里的交接草稿）——
+HANDOVER.md
+
+# —— 依赖 ——
+node_modules/
+package-lock.json
+.package-lock.json
+
+# —— OS / 编辑器 ——
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+.idea/
+*.tgz
+*.dsh-context-guard.tmp
+!docs/*.png

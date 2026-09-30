@@ -1,0 +1,68 @@
+{
+  "name": "dsh-context-guard",
+  "version": "0.3.0",
+  "description": "DSH context-pressure guard: when a session's next request would carry a dangerously large prompt, tell the user at turn end to write the handoff and start a new session. Consumes the official token-meter contextPressure projection; injects no prompt, registers no model-facing tool, so its context tax is zero. v0.3: at 45% occupancy the host half auto-drafts a machine-facts handover block into the session working directory; v0.2 added the host state route and an opt-in (default off) WeChat push.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/handover.mjs",
+    "lib/client.js",
+    "lib/client.template.js",
+    "lib/client-source.js",
+    "lib/policy.mjs",
+    "scripts/build-client.mjs",
+    "test/",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/build-client.mjs",
+    "test": "node --test \"test/*.test.mjs\" && node scripts/build-client.mjs --check",
+    "prepublishOnly": "npm test"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": "*"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "context",
+    "token-meter",
+    "session",
+    "handoff",
+    "context-tax-zero"
+  ],
+  "license": "MIT",
+  "private": false,
+  "author": "dsh-context-guard contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/2JumpSinA/dsh-context-guard.git"
+  },
+  "homepage": "https://github.com/2JumpSinA/dsh-context-guard#readme",
+  "bugs": {
+    "url": "https://github.com/2JumpSinA/dsh-context-guard/issues"
+  }
+}

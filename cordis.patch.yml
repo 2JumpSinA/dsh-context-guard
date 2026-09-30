@@ -1,0 +1,10 @@
+# dsh-context-guard bundle patch.
+#
+# 挂一个入口：宿主半边（lib/index.js）订阅官方 contextPressure 投影 + 在 turn/end 结算；
+# 浏览器半边（lib/client.js，手写单文件 bundle）出会话头徽标与跨档 banner。
+#
+# 安装见 README「安装」：junction 挂进 profile 的 node_modules，然后在 profile 的
+# cordis.patch.yml（用户 patch 层）末尾加一条 insert（照 dsh-plugin-census 的成法）。
+- insert:
+    - id: context-guard
+      name: dsh-context-guard
