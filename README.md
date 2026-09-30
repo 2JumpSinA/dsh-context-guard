@@ -1,6 +1,6 @@
 # dsh-context-guard
 
-npm package: **`@2jumpsina/dsh-context-guard`** (not published) · [中文](README.zh.md)
+npm package: **`@2jumpsina/dsh-context-guard`** · [中文](README.zh.md)
 
 A [DeepSeek Harness](https://deepseek-harness.github.io/deepseek-harness/guide/quickstart) plugin that **tells you to wrap up and start a new session before the session gets too long**.
 
@@ -8,10 +8,9 @@ It consumes the `contextPressure` projection that the official `dsh-token-meter`
 
 **Context tax = 0**: it registers no model-facing tool, injects no prompt section, and sends no extra request. The host does the arithmetic, the UI does the talking.
 
-> ⚠️ **Not on npm — and the npm name `dsh-context-guard` is a third party's package.**
-> `npm i dsh-context-guard` installs **their** plugin (by `greenlv`), not this one. This repository's
-> package name is scoped: **`@2jumpsina/dsh-context-guard`** (also unpublished). Install from this
-> repository instead — see [Install](#install).
+> ⚠️ **Do not run `npm i dsh-context-guard`** — that unscoped name is a **third party's** package
+> (by `greenlv`). This plugin's name is scoped: **`@2jumpsina/dsh-context-guard`**, published on npm
+> (see [Install](#install)).
 
 ![Session-header badge (ctx 48%) and the one-shot banner — redacted screenshot, session content masked](docs/badge-and-banner.png)
 
@@ -130,13 +129,18 @@ Behaviour notes:
 
 ## Install
 
-> ⚠️ **This plugin is not on npm, and its package name is scoped.** The unscoped name
+> ⚠️ **Do not run `npm i dsh-context-guard`.** The unscoped name
 > `dsh-context-guard` belongs to a **third party** (`greenlv <lgr5945@gmail.com>`; latest `0.2.1`, now
-> deprecated in favour of `dsh-completion-guard`). Running `npm i dsh-context-guard` installs **their**
-> plugin, not this one. This repository uses `@2jumpsina/dsh-context-guard` and has never been published
-> to npm either — install from this repository.
+> deprecated in favour of `dsh-completion-guard`). That command installs **their** plugin, not this one.
+> This plugin's name is scoped — **`@2jumpsina/dsh-context-guard`** — and is published on npm.
 
-Install straight from the repository:
+Install from npm (recommended):
+
+```bash
+npm i @2jumpsina/dsh-context-guard
+```
+
+Or straight from this repository (takes whatever the repository currently has):
 
 ```bash
 npm i github:2JumpSinA/dsh-context-guard

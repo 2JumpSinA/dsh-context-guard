@@ -1,6 +1,6 @@
 # dsh-context-guard
 
-npm 包名：**`@2jumpsina/dsh-context-guard`**（未发布） · [English](README.md)
+npm 包名：**`@2jumpsina/dsh-context-guard`** · [English](README.md)
 
 **会话太长就提醒你收尾换会话**的 [DeepSeek Harness](https://deepseek-harness.github.io/deepseek-harness/guide/quickstart) 插件。
 
@@ -9,9 +9,8 @@ npm 包名：**`@2jumpsina/dsh-context-guard`**（未发布） · [English](READ
 
 **上下文税 = 0**：不注册任何 model-facing 工具、不注入 prompt 段落、不额外发请求。宿主算数，UI 说话。
 
-> ⚠️ **没有发布到 npm —— 而且 npm 上的 `dsh-context-guard` 是第三方的包。**
-> `npm i dsh-context-guard` 装到的是**他们的**插件（作者 `greenlv`），不是这个。本仓库的包名是
-> scoped 的：**`@2jumpsina/dsh-context-guard`**（同样没有发布）。请从本仓库安装（见[安装](#安装)）。
+> ⚠️ **别敲 `npm i dsh-context-guard`** —— 那个不带 scope 的名字是**第三方**的包（作者 `greenlv`）。
+> 本插件的包名是 scoped 的：**`@2jumpsina/dsh-context-guard`**，已发布到 npm（见[安装](#安装)）。
 
 ![会话头徽标（ctx 48%）与一次性 banner —— 截图为脱敏版，会话内容已打码](docs/badge-and-banner.png)
 
@@ -119,12 +118,18 @@ npm 包名：**`@2jumpsina/dsh-context-guard`**（未发布） · [English](READ
 
 ## 安装
 
-> ⚠️ **本插件不在 npm 上，而且它的包名是 scoped 的。** 不带 scope 的 `dsh-context-guard` 归**第三方**所有
+> ⚠️ **别敲 `npm i dsh-context-guard`。** 不带 scope 的 `dsh-context-guard` 归**第三方**所有
 > （`greenlv <lgr5945@gmail.com>`；latest `0.2.1`，现已 deprecated 并改名为 `dsh-completion-guard`）。
-> 敲 `npm i dsh-context-guard` 装到的是**他们的**插件，不是这个。本仓库的包名是
-> `@2jumpsina/dsh-context-guard`，同样从未发布到 npm —— 请从本仓库安装。
+> 敲那条命令装到的是**他们的**插件，不是这个。本插件的包名是 scoped 的
+> **`@2jumpsina/dsh-context-guard`**，已发布到 npm。
 
-从本仓库安装：
+从 npm 安装（推荐）：
+
+```bash
+npm i @2jumpsina/dsh-context-guard
+```
+
+也可以直接从本仓库安装（走 GitHub，取的是仓库当前状态）：
 
 ```bash
 npm i github:2JumpSinA/dsh-context-guard
