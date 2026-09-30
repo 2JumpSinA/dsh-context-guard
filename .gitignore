@@ -4,7 +4,10 @@ tools/out/
 *.log
 probe-*.log
 *.jsonl
-*.png
+# 只忽略「仓库根目录」的截图：写成 /*.png 而不是 *.png。
+# 旧的 *.png 会把 docs/ 整个目录排除，导致 L25 的 !docs/*.png 永远不生效
+# （Git 不进入已排除的目录去找否定规则）⇒ git add docs/新截图.png 会静默失败。
+/*.png
 
 # —— 插件自己会写的文件（会话工作目录里的交接草稿）——
 HANDOVER.md
@@ -22,7 +25,9 @@ Desktop.ini
 .idea/
 *.tgz
 *.dsh-context-guard.tmp
-!docs/*.png
 *.sha256
 *.zip
 *.bundle
+
+# —— 例外：需要入库的截图（必须放在上面 /*.png 之后才能生效）——
+!docs/*.png
