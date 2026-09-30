@@ -3,6 +3,9 @@ name: ci
 on:
   push:
     branches: [main]
+    # ⛔ 必须同时监听 tag：否则「只推 tag」不会触发本 workflow，
+    #   publish job 永远等不到（npm 会把 workflow filename 与这里做匹配）。
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -51,3 +54,37 @@ jobs:
             if (bad.length) { console.error('unexpected files in package:', bad); process.exit(1); }
             console.log('pack files:', files.length);
           "
+
+  # ── 发布：只在推 v* tag 时触发，用 npm Trusted Publishing (OIDC) ──────────────
+  # 前提（已完成/待完成）：
+  #   1. npmjs.com → 包 Settings → Trusted Publisher = GitHub Actions
+  #      user 2JumpSinA / repo dsh-context-guard / workflow filename **ci.yml** / environment 空
+  #   2. 这个 job 必须与上面的 filename、以及 npm 页面上的 environment 完全一致（都为空）
+  # 发布成功后 npm 版本页会出现 "Built and signed on GitHub Actions"，dist.attestations 非空。
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC 必需：没有它拿不到发布令牌
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+
+      # 防「tag 与 package.json 版本不一致」——这是 OIDC 发布最常见的失败原因
+      - name: tag must match package.json version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          echo "tag=$tag  package=$pkg"
+          [ "$tag" = "$pkg" ] || { echo "::error::tag $tag != package.json $pkg"; exit 1; }
+
+      # 不再需要 NODE_AUTH_TOKEN：setup-node 的 registry-url 会留一个占位，
+      # npm 自己用 GITHUB_* / OIDC 换取短时令牌（trusted publishing）。
+      - name: npm publish (trusted publishing, with provenance)
+        run: npm publish --access public --provenance
