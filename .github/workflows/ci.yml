@@ -1,0 +1,53 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# CI 只需要读代码
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 与 package.json 的 engines "^22.19.0 || >=24.0.0" 一一对应
+        node: ['22.19.0', '24']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # ⛔ 刻意不跑 npm ci / npm install：
+      #   本包零运行时依赖、零 devDependencies，package-lock.json 被 .gitignore 忽略且不在仓库里
+      #   ⇒ 加 npm ci 会因为「没有 lockfile」直接失败。测试本身也不需要任何依赖。
+      - name: npm test (unit tests + client bundle same-source check)
+        run: npm test
+
+      # 额外闸门：构建/校验不许留下未提交的改动（抓「改了 lib/ 忘了提交」）
+      - name: tree must be clean after the check
+        run: |
+          git diff --exit-code
+          test -z "$(git status --porcelain)"
+
+      # 额外闸门：发出去的包里不该有 tools/ 或任何发布物
+      - name: package contents guard
+        run: |
+          npm pack --dry-run --json > /tmp/pack.json
+          node -e "
+            const files = require('/tmp/pack.json')[0].files.map((f) => f.path);
+            const bad = files.filter((p) => p.startsWith('tools/') || p.endsWith('.tgz') || p.includes('HANDOVER.md'));
+            if (bad.length) { console.error('unexpected files in package:', bad); process.exit(1); }
+            console.log('pack files:', files.length);
+          "
