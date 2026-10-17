@@ -126,7 +126,13 @@ paying**, at the only moment when the number can still change the decision.
 
 Behaviour notes:
 
-- **Never mid-turn**: that request is already on the wire, so a warning there would be pointless.
+- **Judgement timing = on projection change (not `turn/end`)**: `contextPressure` updates after every
+  request and the plugin judges right then; `turn/end` only advances the turn counter and decays the
+  cooldown, while `compaction/end` and `request/header` feed the decision.
+  ⚠️ Earlier revisions here claimed "never mid-turn", which did not match the implementation. After the
+  2026-10-17 code review the decision was **keep the implementation, fix the docs**: moving judgement to
+  `turn/end` means that if that event is ever missed the plugin goes completely silent (a miss), while
+  judging on projection change at worst warns slightly early. See `HANDOVER.md` §33.
 - **Speaks once**: two levels + hysteresis (re-armed only after falling back below `warn − hysteresis`) + edge triggering + a cooldown of N turns.
 - **At a level crossing you get two choices**: `Write the handoff, I will copy it` (write one machine-facts draft right away and surface a copy-ready opening line) and `Got it` (just close, no side effect).
 - **fail-closed**: with no denominator (`contextWindow` absent) it does not judge at all, and the badge explicitly shows `ctx —` instead of pretending to be 0%.

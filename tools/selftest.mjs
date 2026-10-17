@@ -10,7 +10,7 @@
  * 跑法：`node tools/selftest.mjs`（退出码即结论）
  */
 import { createRequire } from 'node:module';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -685,7 +685,7 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
   //     这里走**真的 handler**，验证四件事：方法/参数校验、跳过水位闸门、真写文件、响应不含绝对路径。
   {
     const dir = mkdtempSync(join(tmpdir(), 'guard-manual-'));
-    const { ctx, services, routes } = fakeCtx({ withWebServer: true });
+    const { ctx, services, routes, handlers } = fakeCtx({ withWebServer: true });
     const { projections, fire } = projectionsFor();
     services.set('sessionProjections', projections);
     apply(ctx, { handoverOnWarn: true, handoverPath: join(dir, 'HANDOVER.md') });
@@ -740,6 +740,26 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
       !/[A-Za-z]:[\\/]|\/home\/|\/Users\//.test(JSON.stringify(written.payload)),
       JSON.stringify(written.payload),
     );
+    // v0.4.0：刚写完是空模板 ⇒ todoFilled:false（banner 显示「待补：未补」）
+    check('刚起草完 todoFilled=false（待补还是空槽）', written.payload?.todoFilled === false, JSON.stringify(written.payload));
+
+    // 模拟 agent 把结论补进去，再强制起草一次：内容必须保留，且 todoFilled 变 true
+    writeFileSync(file, readFileSync(file, 'utf8').replace('- [ ] 结论：', '- [ ] 结论：这一格是 agent 补的'));
+    const second = await call({ method: 'POST', url: `${DRAFT_ROUTE}?sessionId=manual1` });
+    await new Promise((r) => setTimeout(r, 80));
+    const after = existsSync(file) ? readFileSync(file, 'utf8') : '';
+    check('再起草一次后人工结论仍在（0.3.6 的保留逻辑）', after.includes('这一格是 agent 补的'), after.slice(-400));
+    check('todoFilled 变为 true', second.payload?.ok === true && second.payload?.todoFilled === true, JSON.stringify(second.payload));
+
+    // 6i. 压缩前快照（v0.4.1）：压缩后投影已经是低水位 ⇒ 快照必须取**压缩前峰值**
+    fire(s, { projectedTokens: 600_000, contextWindow: 1_000_000 });
+    await new Promise((r) => setTimeout(r, 50));
+    fire(s, { projectedTokens: 200_000, contextWindow: 1_000_000 }); // 模拟压缩后
+    for (const listener of handlers.get('session/event') ?? []) listener(s, { type: 'compaction/end' });
+    await new Promise((r) => setTimeout(r, 120));
+    const afterCompact = existsSync(file) ? readFileSync(file, 'utf8') : '';
+    check('压缩后写了「压缩前快照」块', afterCompact.includes('pre-compaction'), afterCompact.slice(-300));
+    check('快照取的是压缩前峰值 60.0%（不是压缩后的 20%）', afterCompact.includes('60.0%'), afterCompact.slice(-500));
   }
 }
 

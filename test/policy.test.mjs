@@ -128,6 +128,58 @@ test('坑 4：respectCompaction 在「紧跟压缩的这轮」抑制出声，但
   assert.equal(out.state.level, 'hard', '但状态照记，徽标显示真数字');
 });
 
+// P0-2 回归（2026-10-17 代码审查发现）：已武装时档位只能用 rank 比较、**绝不降级**。
+// 旧代码写的是 `level > wasLevel ? level : wasLevel` —— 字符串字典序里 'warn' > 'hard' 为 true，
+// 于是 hard 回落到 warn 带时会被降级成 warn，再回到 60% 就会**重复发一次 escalate**。
+test('P0-2 回归：已武装时 hard 回落到 warn 带不得降级，再上 60% 不得重复 escalate', () => {
+  const cfg = defaultConfig(); // warn 0.45 / hard 0.60 / hysteresis 0.05 ⇒ 回落线 0.40
+  const at = (r) => read(Math.round(r * 200_000), 200_000);
+
+  // 首次直接进 hard ⇒ 唯一的 enter
+  let out = reduce(initialState(), at(0.7), { config: cfg });
+  assert.equal(out.signal?.kind, 'enter');
+  assert.equal(out.signal.level, 'hard');
+
+  // 回落到 warn 带内（仍高于回落线 0.40，不解除武装）⇒ 档位必须保持 hard
+  out = reduce(out.state, at(0.5), { config: cfg });
+  assert.equal(out.state.armed, true, '0.50 > 回落线 0.40，仍是武装状态');
+  assert.equal(out.state.level, 'hard', '已武装时档位只升不降 —— 不得被降级成 warn');
+  assert.equal(out.signal, null, '同级重复不该出声');
+
+  // 再回到 hard ⇒ 档位没变过 ⇒ **不得**再发 escalate（若上一步被降级，这里就会重复响）
+  out = reduce(out.state, at(0.65), { config: cfg });
+  assert.equal(out.signal, null, '同档重复不响；这里若发生过降级就会重复 escalate');
+
+  // 反向对照：warn 起步再升 hard ⇒ 必须响一次 escalate（升级路径本身要正常）
+  const w = reduce(initialState(), at(0.5), { config: cfg });
+  assert.equal(w.signal?.kind, 'enter');
+  assert.equal(w.signal.level, 'warn');
+  const up = reduce(w.state, at(0.65), { config: cfg });
+  assert.equal(up.signal?.kind, 'escalate', 'warn → hard 必须升级出声');
+  assert.equal(up.signal.level, 'hard');
+});
+
+// P1-4 回归（2026-10-17 代码审查发现）：迟滞必须被压到 warn 的一半以内。
+// 否则 warnRatio <= hysteresisRatio 时回落线被 max(0,…) 夹成 0 ⇒ 占用率永远 > 0 ⇒ 武装后永不解锁。
+test('P1-4 回归：hysteresis ≥ warn 时回落线不得被夹到 0（否则武装后再也收不到 enter）', () => {
+  const cfg = defaultConfig({ warnRatio: 0.45, hysteresisRatio: 0.9 }); // 极端：迟滞比 warn 还大
+  const at = (r) => read(Math.round(r * 200_000), 200_000);
+
+  const armed = reduce(initialState(), at(0.5), { config: cfg });
+  assert.equal(armed.state.armed, true);
+  assert.equal(armed.signal?.kind, 'enter');
+
+  // 掉到回落线以下（压一半后回落线 = 0.45 − 0.225 = 0.225，0.20 < 0.225）⇒ 必须解除武装。
+  // 若回落线被夹到 0，这里会永远 armed = true。
+  const out = reduce(armed.state, at(0.2), { config: cfg });
+  assert.equal(out.state.armed, false, '回落线必须落在 >0 的位置，否则永不解除武装');
+  assert.equal(out.state.level, 'none');
+
+  // 解除后重新爬上来 ⇒ 应当能再收到一次 enter
+  const again = reduce(out.state, at(0.5), { config: cfg });
+  assert.equal(again.signal?.kind, 'enter', '解除武装后必须能重新响');
+});
+
 test('冷却：跨档后 cooldownTurns 轮内不再出声', () => {
   const cfg = defaultConfig({ cooldownTurns: 5 });
   let out = reduce(initialState(), read(170_000, 200_000), { config: cfg });

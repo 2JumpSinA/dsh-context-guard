@@ -15,7 +15,13 @@ import {
   TODO_END,
   changedFiles,
   composeHandoverBlock,
+  composePreCompactionBlock,
   fmtTime,
+  isTodoFilled,
+  preBeginMarker,
+  preEndMarker,
+  todoFilledIn,
+  upsertPreCompactionBlock,
   recentTurns,
   resolveHandoverPath,
   toolMix,
@@ -274,6 +280,61 @@ test('upsertHandoverBlock：旧块没有子标记（≤0.3.5）时，人工区�
   const up = upsertHandoverBlock(legacy, 's3', fresh);
   assert.ok(up.text.includes('旧结论也要活下来'), '旧块的结论被搬进新块');
   assert.ok(up.text.includes('新事实'), '机器事实更新');
+});
+
+// v0.4.0：把「结论还在不在」变成可判断的布尔值（banner 上显示 待补：未补 / 已补）
+test('isTodoFilled / todoFilledIn：空模板=未补，写进去=已补，且只看自己那一块', () => {
+  const empty = [TODO_BEGIN, '', '- [ ] 结论：', '- [ ] 踩过的坑 / 反直觉的地方：', '- [ ] 未做完 / 下一步：', TODO_END].join('\n');
+  assert.equal(isTodoFilled(empty), false, '三条空槽就是未补');
+
+  const filled = empty.replace('- [ ] 结论：', '- [ ] 结论：已经补完了');
+  assert.equal(isTodoFilled(filled), true, '冒号后面有字就是已补');
+
+  const checked = empty.replace('- [ ] 结论：', '- [x] 结论：勾上也补了');
+  assert.equal(isTodoFilled(checked), true, '- [x] 也算填过');
+
+  const prose = empty.replace('- [ ] 结论：', '结论：这一段是纯散文，没有 checkbox');
+  assert.equal(isTodoFilled(prose), true, 'agent 把 checkbox 换成散文也算填过');
+
+  const file = [
+    '# 交接',
+    beginMarker('mine') + '\n' + empty + '\n' + endMarker,
+    beginMarker('other') + '\n' + filled + '\n' + endMarker,
+  ].join('\n\n');
+  assert.equal(todoFilledIn(file, 'mine'), false, '只认自己那块（别的会话填了不算）');
+  assert.equal(todoFilledIn(file, 'other'), true);
+  assert.equal(todoFilledIn(file, 'missing'), false, '没有块就是未补');
+});
+
+// v0.4.1：压缩前快照 —— 平台压缩后读数就没了，所以必须在压缩时把**峰值**落盘
+test('composePreCompactionBlock / upsertPreCompactionBlock：峰值读数 + 独立块 + 幂等替换', () => {
+  const reading = { known: true, ratio: 0.677, projectedTokens: 677_000, contextWindow: 1_000_000 };
+  const material = {
+    tokenCost: { cost: 10.88, calls: 600 },
+    contextTimeline: {
+      fileOps: [
+        { kind: 'write', tool: 'edit', path: 'lib/a.mjs' },
+        { kind: 'write', tool: 'write', path: 'README.md' },
+      ],
+    },
+  };
+  const block = composePreCompactionBlock({ sessionId: 's9', now: 1_790_000_000_000, reading, material, locale: 'zh' });
+  assert.ok(block.startsWith(preBeginMarker('s9')), '块以自己的标记开头');
+  assert.ok(block.trimEnd().endsWith(preEndMarker));
+  assert.match(block, /67\.7%/, '压缩前水位');
+  assert.match(block, /¥10\.88/, '花费');
+  assert.match(block, /lib\/a\.mjs/, '改过的文件');
+
+  const main = `${beginMarker('s9')}\n机器事实\n${endMarker}`;
+  const first = upsertPreCompactionBlock(`# 头\n\n${main}\n`, 's9', block);
+  assert.equal(first.action, 'appended');
+
+  const second = upsertPreCompactionBlock(first.text, 's9', block.replace('67.7%', '70.0%'));
+  assert.equal(second.action, 'replaced', '同会话再压缩 ⇒ 替换而不是累积');
+  assert.equal(second.text.split(preBeginMarker('s9')).length - 1, 1, '只有一块快照');
+  assert.ok(second.text.includes('70.0%'));
+  assert.ok(!second.text.includes('67.7%'));
+  assert.ok(second.text.includes(beginMarker('s9')), '自动草稿块不受影响');
 });
 
 test('resolveHandoverPath：绝对路径原样；相对路径要 cwd；没有 cwd 就返回 null', () => {
