@@ -11,6 +11,8 @@ import { join } from 'node:path';
 import {
   beginMarker,
   endMarker,
+  TODO_BEGIN,
+  TODO_END,
   changedFiles,
   composeHandoverBlock,
   fmtTime,
@@ -85,6 +87,9 @@ test('composeHandoverBlock：带标记 + 机器事实 + 待补空槽', () => {
   assert.match(block, /lib\/policy\.mjs/);
   assert.match(block, /把阈值改掉/);
   assert.match(block, /- \[ \] 结论：/);
+  // v0.3.6：待补区带子标记，且标记在三条空槽之前（刷新时据此保留人工内容）
+  assert.ok(block.includes(TODO_BEGIN) && block.includes(TODO_END), '待补区带子标记');
+  assert.ok(block.indexOf(TODO_BEGIN) < block.indexOf('- [ ] 结论：'), '子标记在空槽之前');
 });
 
 test('composeHandoverBlock：locale=en 时整块英文（§19.6 的落点）', () => {
@@ -206,6 +211,69 @@ test('upsertHandoverBlock：没有则追加、有则整块替换（且不动别�
   assert.doesNotMatch(replaced.text, /AAA\n/);
   assert.match(replaced.text, /BBB/, '别的会话那块必须原样保留');
   assert.match(replaced.text, /# 交接/, '正文不动');
+});
+
+// v0.3.6：刷新时保留「待补」人工区 —— 这条是**信息不丢**的护栏（此前整块替换会把 agent 填的结论冲掉）
+test('upsertHandoverBlock：刷新后人工结论仍在，机器事实已更新', () => {
+  const oldBlock = [
+    beginMarker('s2'),
+    '旧机器事实 1%',
+    '**待补（由 agent 写）**',
+    TODO_BEGIN,
+    '',
+    '- [ ] 结论：已完成，只剩 UI 冒烟',
+    '- [ ] 踩过的坑 / 反直觉的地方：无',
+    '- [ ] 未做完 / 下一步：跑真机',
+    TODO_END,
+    endMarker,
+  ].join('\n');
+  const newBlock = [
+    beginMarker('s2'),
+    '新机器事实 2%',
+    '**待补（由 agent 写）**',
+    TODO_BEGIN,
+    '',
+    '- [ ] 结论：',
+    '- [ ] 踩过的坑 / 反直觉的地方：',
+    '- [ ] 未做完 / 下一步：',
+    TODO_END,
+    endMarker,
+  ].join('\n');
+
+  const up = upsertHandoverBlock(`# 交接\n\n${oldBlock}\n`, 's2', newBlock);
+  assert.equal(up.action, 'replaced');
+  assert.ok(up.text.includes('新机器事实 2%'), '机器事实必须更新');
+  assert.ok(!up.text.includes('旧机器事实 1%'), '旧机器事实要被替换掉');
+  assert.ok(up.text.includes('已完成，只剩 UI 冒烟'), '人工结论必须保留');
+  assert.ok(up.text.includes('跑真机'), '「下一步」必须保留');
+  assert.equal(up.text.split(beginMarker('s2')).length - 1, 1, '仍然只有一块');
+});
+
+test('upsertHandoverBlock：旧块没有子标记（≤0.3.5）时，人工区靠 - [ ] 锚点保留', () => {
+  const legacy = [
+    beginMarker('s3'),
+    '旧事实',
+    '**待补（由 agent 写）**',
+    '',
+    '- [ ] 结论：旧结论也要活下来',
+    '- [ ] 未做完 / 下一步：x',
+    endMarker,
+  ].join('\n');
+  const fresh = [
+    beginMarker('s3'),
+    '新事实',
+    '**待补（由 agent 写）**',
+    TODO_BEGIN,
+    '',
+    '- [ ] 结论：',
+    '- [ ] 未做完 / 下一步：',
+    TODO_END,
+    endMarker,
+  ].join('\n');
+
+  const up = upsertHandoverBlock(legacy, 's3', fresh);
+  assert.ok(up.text.includes('旧结论也要活下来'), '旧块的结论被搬进新块');
+  assert.ok(up.text.includes('新事实'), '机器事实更新');
 });
 
 test('resolveHandoverPath：绝对路径原样；相对路径要 cwd；没有 cwd 就返回 null', () => {

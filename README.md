@@ -291,6 +291,26 @@ When `warnRatio` is crossed (or a session already above it is opened), the plugi
   Why: once the on-demand detail channel is armed, the wire view of `contextTimeline` (registered by plugins such as `dsh-context`) is a **slim head**: occupancy, size, tool mix and cost are all there, but **`fileOps` is not** — the heavy collections exist only in the unit state. v0.3.0 read the wire view only ⇒ "files changed" was always 0 (**identical for a restored session and a running one**; it was never a difference between those two paths); and `turnOutline`'s wire view is an **array** while v0.3.0 read `{turns}` ⇒ "last few turns" always printed "host did not provide". Both are fixed now, each guarded by unit tests and the self-test.
 - **Dependencies and degradation**: `fileOps` and the tool mix depend on a plugin that registers `contextTimeline` (e.g. `dsh-context`); cost depends on `tokenCost` (e.g. `dsh-damage-pulse`). When they are absent, those sections render empty — the plugin **invents nothing** and does not fail. And if the host registry has no `stateOf` (older harness), it falls back to the wire view, i.e. v0.3.0 behaviour.
 
+### How faithful is the handoff? (v0.3.6 — this section matters more than the feature list)
+
+| What | Fidelity | Why |
+|---|---|---|
+| session / occupancy / spend / changed files / time | **high (verifiable)** | all of it comes from official projections; the plugin neither rewrites nor estimates. If a number is wrong, the projection is wrong — not the prose |
+| **the last N turns summary** | **medium (truncated)** | it is a condensed "prompt / response" list, not the original text ⇒ treat it as a **clue**, not as evidence |
+| **to fill in (conclusions / pitfalls / next steps)** | **empty** | the plugin has no idea what you did. Those three slots belong to whoever **saw the whole conversation** — you, or the old session's agent |
+
+Two consequences worth stating plainly:
+
+1. **A new-session agent that only sees the summary will *infer*.** It never saw the failed attempts, the rejected
+   approaches or the verbal agreements in those dozens of turns ⇒ read its conclusions as a **draft** and correct them.
+2. **The old session's agent writes better conclusions** (it still has the context). The button covers the zero-cost
+   machine facts; for conclusions, ask the old session for one line and write them **outside** the block.
+
+> **Manual notes now survive refreshes (v0.3.6)**: the "to fill in" area has its own sub-markers
+> `<!-- dsh-context-guard:todo:begin/end -->`; a refresh updates **only the machine facts above it** and leaves the
+> manual content byte-for-byte intact. (Blocks written by ≤0.3.5 have no sub-markers and are rescued once via a
+> `- [ ]` line anchor.)
+
 ## Thresholds and the reasoning behind them (why 0.45 / 0.60)
 
 - **Occupancy = `projectedTokens / contextWindow`** (the official definition: how large the **next** request's prompt is, output excluded). Always a ratio: switch models and the window switches with it.
