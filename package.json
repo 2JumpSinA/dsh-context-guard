@@ -19,6 +19,7 @@
     "lib/client.template.js",
     "lib/client-source.js",
     "lib/policy.mjs",
+    "lib/engine.mjs",
     "scripts/build-client.mjs",
     "test/",
     "cordis.patch.yml",

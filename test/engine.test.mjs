@@ -10,7 +10,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createGuardEngine } from '../lib/index.js';
+import { createGuardEngine } from '../lib/engine.mjs';
 import { defaultConfig } from '../lib/policy.mjs';
 
 /** 构造一个 token-meter 投影形状（`readOccupancy` 只认 projectedTokens / contextWindow）。 */
