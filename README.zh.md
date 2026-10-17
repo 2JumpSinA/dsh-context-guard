@@ -12,6 +12,9 @@ npm 包名：**`@2jumpsina/dsh-context-guard`** · [English](README.md)
 > ⚠️ **别敲 `npm i dsh-context-guard`** —— 那个不带 scope 的名字是**第三方**的包（作者 `greenlv`）。
 > 本插件的包名是 scoped 的：**`@2jumpsina/dsh-context-guard`**，已发布到 npm（见[安装](#安装)）。
 
+> 🙂 **用起来了？回我一条吧 —— 我想知道还有哪些可以改善的地方。**
+> [一句话就够](https://github.com/2JumpSinA/dsh-context-guard/issues/new/choose)：它在你那儿做对了什么、哪里别扭。
+
 ![会话头徽标（ctx 48%）与一次性 banner —— 截图为脱敏版，会话内容已打码](docs/badge-and-banner.png)
 
 ---

@@ -12,6 +12,9 @@ It consumes the `contextPressure` projection that the official `dsh-token-meter`
 > (by `greenlv`). This plugin's name is scoped: **`@2jumpsina/dsh-context-guard`**, published on npm
 > (see [Install](#install)).
 
+> 🙂 **Got it running? Send me a line — what I want most is to hear what could be better.**
+> [One line is enough](https://github.com/2JumpSinA/dsh-context-guard/issues/new/choose): what it got right in your setup, and what felt off.
+
 ![Session-header badge (ctx 48%) and the one-shot banner — redacted screenshot, session content masked](docs/badge-and-banner.png)
 
 ---
