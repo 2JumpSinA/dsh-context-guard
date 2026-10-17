@@ -128,6 +128,7 @@ Behaviour notes:
 
 - **Never mid-turn**: that request is already on the wire, so a warning there would be pointless.
 - **Speaks once**: two levels + hysteresis (re-armed only after falling back below `warn − hysteresis`) + edge triggering + a cooldown of N turns.
+- **At a level crossing you get two choices**: `Write the handoff, I will copy it` (write one machine-facts draft right away and surface a copy-ready opening line) and `Got it` (just close, no side effect).
 - **fail-closed**: with no denominator (`contextWindow` absent) it does not judge at all, and the badge explicitly shows `ctx —` instead of pretending to be 0%.
 
 ## Install
@@ -282,6 +283,9 @@ When `warnRatio` is crossed (or a session already above it is opened), the plugi
 (The block's labels are Chinese because that is what the plugin writes today — the facts themselves are language-neutral: a machine-facts table, the files changed, the last few turns, and empty slots.)
 
 - **Idempotent**: one block per session, replaced wholesale on refresh, **never appended twice**; a human can delete the whole block.
+- **You can also trigger it by hand (v0.3.5)**: the banner button `Write the handoff, I will copy it` issues `POST /api/context-guard/draft`, which **skips the "only refresh after another step" gate**, writes the block right away, and returns a copy-ready opener:
+  `@HANDOVER.md Continue from this handoff. Fill in the "to fill in" slots first, then carry on with the task.`
+  (Like the state route, this route has **no plugin-level authentication**: the response carries a file name only, never an absolute path.)
 - **Machine facts only, no conclusions** — the plugin has no idea what you did. Have your agent fill in the conclusions / pitfalls / next steps in the "to be filled in" slots, or fold the block into your own handoff document and delete it.
 - **Where the material comes from (verified on a live machine 2026-09-30; fixed in 0.3.2 — the first version published under the `@2jumpsina` scope)**: the machine facts come from the **host state source of truth** — the registry's `sessionProjections.stateOf(session, key)` — and **not** from the **wire view** pushed by projection changes.
   Why: once the on-demand detail channel is armed, the wire view of `contextTimeline` (registered by plugins such as `dsh-context`) is a **slim head**: occupancy, size, tool mix and cost are all there, but **`fileOps` is not** — the heavy collections exist only in the unit state. v0.3.0 read the wire view only ⇒ "files changed" was always 0 (**identical for a restored session and a running one**; it was never a difference between those two paths); and `turnOutline`'s wire view is an **array** while v0.3.0 read `{turns}` ⇒ "last few turns" always printed "host did not provide". Both are fixed now, each guarded by unit tests and the self-test.

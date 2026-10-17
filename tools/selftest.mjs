@@ -111,7 +111,7 @@ function fakeCtx({ withProjections = true, withWebServer = false, withWechat = f
 const session = (id) => ({ id, header: { id } });
 
 // —— 1. Config 契约
-const { Config, name, inject, apply, normalizeConfig, createGuardEngine, STATE_ROUTE } = mod;
+const { Config, name, inject, apply, normalizeConfig, createGuardEngine, STATE_ROUTE, DRAFT_ROUTE } = mod;
 check('name 存在', typeof name === 'string' && name.length > 0);
 check('inject 是数组且不硬依赖 sessionProjections', Array.isArray(inject) && !inject.includes('sessionProjections'), `inject=${JSON.stringify(inject)}`);
 check('Config 是 schemastery 节点（有 toJSON）', Boolean(Config) && typeof Config.toJSON === 'function');
@@ -679,6 +679,67 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
     } finally {
       delete process.env.DSH_CONTEXT_GUARD_LOCALE;
     }
+  }
+
+  // 6h. 手动起草路由（v0.3.5）：banner 上「写好交接，我复制」按的就是它。
+  //     这里走**真的 handler**，验证四件事：方法/参数校验、跳过水位闸门、真写文件、响应不含绝对路径。
+  {
+    const dir = mkdtempSync(join(tmpdir(), 'guard-manual-'));
+    const { ctx, services, routes } = fakeCtx({ withWebServer: true });
+    const { projections, fire } = projectionsFor();
+    services.set('sessionProjections', projections);
+    apply(ctx, { handoverOnWarn: true, handoverPath: join(dir, 'HANDOVER.md') });
+
+    const route = routes.get(DRAFT_ROUTE);
+    check('注册了手动起草路由', route !== undefined, JSON.stringify([...routes.keys()]));
+
+    const call = async (req) => {
+      const res = fakeRes();
+      if (route === undefined) return { status: 0, payload: null };
+      await route.handler(req, res);
+      let payload = null;
+      try {
+        payload = JSON.parse(res.out.body);
+      } catch {
+        /* 非 JSON 就当 null */
+      }
+      return { status: res.out.status, payload };
+    };
+
+    check('起草路由只接受 POST（GET ⇒ 405）', (await call({ method: 'GET', url: DRAFT_ROUTE })).status === 405);
+    check('缺 sessionId ⇒ 400', (await call({ method: 'POST', url: DRAFT_ROUTE })).status === 400);
+
+    const unknown = await call({ method: 'POST', url: `${DRAFT_ROUTE}?sessionId=nope` });
+    check(
+      '未知会话 ⇒ ok:false / no-reading（而不是 500）',
+      unknown.payload?.ok === false && unknown.payload?.reason === 'no-reading',
+      JSON.stringify(unknown.payload),
+    );
+
+    // 对照：10% 水位远低于 warnRatio ⇒ 自动起草路径**不该**写文件
+    const s = { id: 'manual1', header: { id: 'manual1', cwd: dir, createdAt: Date.now() } };
+    fire(s, { projectedTokens: 100_000, contextWindow: 1_000_000 });
+    await new Promise((r) => setTimeout(r, 50));
+    const file = join(dir, 'HANDOVER.md');
+    check('对照：10% 水位不会自动起草', !existsSync(file));
+
+    // 手动按钮：跳过水位闸门，立刻写一次
+    const written = await call({ method: 'POST', url: `${DRAFT_ROUTE}?sessionId=manual1` });
+    await new Promise((r) => setTimeout(r, 80));
+    check(
+      '手动起草 ⇒ ok:true 且只回文件名（不回绝对路径）',
+      written.payload?.ok === true && written.payload?.doc === 'HANDOVER.md',
+      JSON.stringify(written.payload),
+    );
+    check(
+      '手动起草真的写进了工作目录',
+      existsSync(file) && readFileSync(file, 'utf8').includes(beginMarker('manual1')),
+    );
+    check(
+      '响应体里没有任何绝对路径（P1-2）',
+      !/[A-Za-z]:[\\/]|\/home\/|\/Users\//.test(JSON.stringify(written.payload)),
+      JSON.stringify(written.payload),
+    );
   }
 }
 

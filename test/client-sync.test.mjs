@@ -178,6 +178,7 @@ function undefinedFreeIdentifiers(bundle) {
     'Object', 'Array', 'Map', 'Set', 'Math', 'JSON', 'Number', 'String', 'Boolean', 'Date', 'Error', 'TypeError',
     'ReferenceError', 'Promise', 'RegExp', 'isFinite', 'parseInt', 'queueMicrotask', 'setTimeout', 'clearTimeout',
     'fetch', // 浏览器全局：client 半边读宿主状态路由用的就是它（§14.5「宿主机设置接到 client」）
+    'encodeURIComponent', // 浏览器全局：手动起草按钮把 sessionId 拼进 DRAFT_ROUTE 的 query（v0.3.5）
     'require', 'rgba', // CSS 颜色函数会以字符串形式出现在内联样式里
     'constructor', 'context', // 类构造器名与策略里的 `(context = defaultConfig())` 默认参数
     'return', 'var', 'let', 'const', 'if', 'for', 'while', 'switch', 'catch', 'typeof', 'new', 'function', 'do',
