@@ -1,0 +1,30 @@
+name: "🐛 有问题 / Something broke"
+description: "安装或使用出问题 / install or usage problem"
+title: "[bug] "
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: "发生了什么 / What happened"
+      description: "现象 + 你期望什么。如果是安装失败，把报错原文贴进来 / what you saw vs what you expected; paste the raw error if install failed"
+      placeholder: "装完重启 dsh 后，会话头没有出现 ctx 徽标；profile 里也没有该插件。"
+    validations:
+      required: true
+
+  - type: input
+    id: env
+    attributes:
+      label: "环境 / Environment"
+      description: "DSH 版本 · 系统 · Node 版本，能复现就够 / DSH version · OS · Node"
+      placeholder: "dsh 0.1.7-rc.2 · Windows 11 · Node 24.21"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: "日志（可选）/ Logs (optional)"
+      description: "⚠️ 粘贴前先删掉任何 token、cookie、会话内容 / strip tokens, cookies and session content before pasting"
+      render: shell
+    validations:
+      required: false

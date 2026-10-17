@@ -1,0 +1,20 @@
+name: "👍 用起来了 / It works here"
+description: "一句话就够：在你那儿它做了什么 / one line is enough"
+title: "[used] "
+body:
+  - type: input
+    id: one_line
+    attributes:
+      label: "一句话 / One line"
+      description: "它在你的环境里做了什么（或没做到什么）/ what it did in your setup"
+      placeholder: "在 47% 提醒了我一次，交接草稿直接能用。"
+    validations:
+      required: true
+
+  - type: input
+    id: env
+    attributes:
+      label: "环境（可选）/ Environment (optional)"
+      placeholder: "dsh 0.1.7-rc.2 · Windows 11"
+    validations:
+      required: false
