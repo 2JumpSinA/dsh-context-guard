@@ -1,7 +1,7 @@
 {
   "name": "@2jumpsina/dsh-context-guard",
-  "version": "0.4.0",
-  "description": "DSH context-pressure guard: when a session's next request would carry a dangerously large prompt, tell the user at turn end to write the handoff and start a new session. Consumes the official token-meter contextPressure projection; injects no prompt, registers no model-facing tool, so its context tax is zero. v0.3: at 45% occupancy the host half auto-drafts a machine-facts handover block into the session working directory; v0.2 added the host state route and an opt-in (default off) WeChat push; v0.3.2 onwards ships bilingual (zh/en, auto-detected per half) runtime copy; v0.3.3 was a docs-only release that fixed the install instructions once the package was live on npm; v0.3.4 fixed cross-platform absolute-path detection in resolveHandoverPath and moved publishing to CI with npm trusted publishing (OIDC); v0.3.5 adds a second banner choice (write the handoff now, with a copy-ready @mention opener) backed by a POST draft route; v0.3.6 makes the to-fill-in area survive refreshes (sub-markers) so conclusions an agent writes are never overwritten.",
+  "version": "0.4.1",
+  "description": "DSH context-pressure guard: when a session's next request would carry a dangerously large prompt, tell the user at turn end to write the handoff and start a new session. Consumes the official token-meter contextPressure projection; injects no prompt, registers no model-facing tool, so its context tax is zero. v0.3: at 45% occupancy the host half auto-drafts a machine-facts handover block into the session working directory; v0.2 added the host state route and an opt-in (default off) WeChat push; v0.3.2 onwards ships bilingual (zh/en, auto-detected per half) runtime copy; v0.3.3 was a docs-only release that fixed the install instructions once the package was live on npm; v0.3.4 fixed cross-platform absolute-path detection in resolveHandoverPath and moved publishing to CI with npm trusted publishing (OIDC); v0.3.5 adds a second banner choice (write the handoff now, with a copy-ready @mention opener) backed by a POST draft route; v0.3.6 makes the to-fill-in area survive refreshes (sub-markers) so conclusions an agent writes are never overwritten; v0.4.0 turns the banner into two copy-ready handoff texts (fill the conclusions here / open the next session) with a todoFilled flag, and adds a zero-LLM pre-compaction snapshot block (the platform's compaction is a black box; this keeps the pre-compaction occupancy/spend/files); v0.4.1 declares the DSH host requirement via engines.dsh.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -45,7 +45,8 @@
     "@deepseek-ai/schemastery": "*"
   },
   "engines": {
-    "node": "^22.19.0 || >=24.0.0"
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.1.6-alpha.2 <0.2.0"
   },
   "keywords": [
     "dsh",
