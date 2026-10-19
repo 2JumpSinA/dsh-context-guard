@@ -829,12 +829,15 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
     check('init 只依赖会话头（id 来自 header）', state.id === 'proj-s1' && state.level === 'none', JSON.stringify(state));
     const view = def.wire.viewSchema.parse(def.wire.view(state));
     check(
-      'view 是 level/armed/turn/cooldown/ratio + 阈值三字段 + 压缩回执三字段 + 压缩点/来源/环境',
+      'view 是 level/armed/turn/cooldown/ratio + 阈值三字段 + 压缩回执三字段 + 压缩点/来源/环境 + 压缩参数三字段',
       JSON.stringify(Object.keys(view).sort()) ===
         JSON.stringify([
           'armed',
           'compactBasis',
+          'compactHeadroom',
           'compactPercent',
+          'compactRatio',
+          'compactReserve',
           'cooldown',
           'enabled',
           'hardRatio',

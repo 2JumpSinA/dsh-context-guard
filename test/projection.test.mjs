@@ -226,10 +226,14 @@ const gate = (name, fn) =>
 // 客户端据此在「宿主档位还没被事件驱动」时做只读的显示兜底（§37.4）。
 // v0.5.0：又多了**压缩回执三字段**（`receiptPercent` / `receiptRow` / `receiptAt`）。
 // v0.6.1：多了**自动压缩点**（`compactPercent`，按 DSH 公式推算）。
+// v0.6.10：又多了算这个数的**三个参数**（ratio / headroom / reserve），客户端用实时读数重算。
 const VIEW_KEYS = [
   'armed',
   'compactBasis',
+  'compactHeadroom',
   'compactPercent',
+  'compactRatio',
+  'compactReserve',
   'cooldown',
   'enabled',
   'hardRatio',
@@ -278,6 +282,9 @@ gate('snapshot 契约：出现 contextGuard，view 形状正确且是扁平纯 J
     receiptAt: null,
     compactPercent: null,
     compactBasis: 'none',
+    compactRatio: 0.8,
+    compactHeadroom: 65536,
+    compactReserve: null,
     modelTag: null,
     presetTag: null,
   });
@@ -392,6 +399,9 @@ gate('schema 不是摆设：parse 合法时**原样返回**（引用稳定），
     receiptAt: null,
     compactPercent: 67.8,
     compactBasis: 'config',
+    compactRatio: 0.8,
+    compactHeadroom: 65536,
+    compactReserve: 256000,
     modelTag: 'deepseek-official/deepseek-flash',
     presetTag: null,
   };
@@ -414,6 +424,9 @@ gate('schema 不是摆设：parse 合法时**原样返回**（引用稳定），
       receiptAt: null,
       compactPercent: null,
       compactBasis: 'none',
+      compactRatio: null,
+      compactHeadroom: null,
+      compactReserve: null,
       modelTag: null,
       presetTag: null,
     },
