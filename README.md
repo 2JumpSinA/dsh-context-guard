@@ -368,7 +368,8 @@ Two consequences worth stating plainly:
   `thresholdRatio` / `headroomTokens` / `modelPolicies` (`ctx.get('compaction').config`) and prints the **exact** point;
   only when that is unreadable does it fall back to defaults and say "estimated". The badge tooltip also shows the
   source and the environment (`provider/model` · agent preset).
-- Division of labour: `warnRatio` = start wrapping up / write the handoff; `hardRatio` = start a new session.
+- Division of labour (v0.6.3): `warnRatio` (0.45) = **draft the handoff silently**, no banner any more;
+  `hardRatio` (0.60) = the **only reminder** (shown once when crossed, until you dismiss it).
 
 ## Compaction ledger (v0.5.0)
 

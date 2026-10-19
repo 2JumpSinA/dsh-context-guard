@@ -353,7 +353,8 @@ New-Item -ItemType Junction `
 - **v0.6.2：配置优先（精确态）。** 装了 `dsh-compaction-basic` 时直接读它**解析后**的
   `thresholdRatio` / `headroomTokens` / `modelPolicies`（`ctx.get('compaction').config`），给的是**精确值**；
   读不到才退回默认参数并标「推算」。徽标 tooltip 同时写明来源与环境（`provider/model` · 智能体预设）。
-- 两档的分工：`warnRatio` = 开始收尾/写交接；`hardRatio` = 换会话。
+- 两档的分工（v0.6.3）：`warnRatio`（0.45）= **静默起草**交接草稿，**不再弹 banner**；
+  `hardRatio`（0.60）= **唯一提醒**（跨档时出现一次，直到你点「知道了 / ×」）。
 
 ## 压缩账（v0.5.0）
 

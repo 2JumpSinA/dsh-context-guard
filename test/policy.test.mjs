@@ -293,11 +293,11 @@ test('displayLevel：宿主停在 none + 官方读数已过线 ⇒ 兜底显示�
  * 而里面正摆着「①/② 可复制交接」—— 用户恰好在按提示写结论，面板被一次压缩带走。
  * 规矩：**出过声就不消失**，等用户自己点「知道了 / ×」。
  */
-test('shownBannerLevel：出过声的 banner 不因压缩回落而消失', () => {
+test('shownBannerLevel：只有 hard 出声；出过声的 banner 不因压缩回落而消失', () => {
   assert.equal(shownBannerLevel('hard', 'none'), 'hard', '水位掉回 none 时沿用出过声的 hard');
-  assert.equal(shownBannerLevel('none', 'warn'), 'warn');
-  assert.equal(shownBannerLevel('hard', 'warn'), 'hard', '当前档位优先于旧档位');
-  assert.equal(shownBannerLevel('none', 'none'), 'none', '没出过声就不显示');
-  assert.equal(shownBannerLevel('none', undefined), 'none');
-  assert.equal(shownBannerLevel('warn', 'hard'), 'warn', '已经回落成 warn 就按 warn 说');
+  assert.equal(shownBannerLevel('warn', 'none'), 'none', '45% 不再弹 banner（v0.6.3：只静默起草）');
+  assert.equal(shownBannerLevel('none', 'hard'), 'hard', '压缩回落后仍保留回执');
+  assert.equal(shownBannerLevel('warn', 'hard'), 'hard', '回落到 warn 区间也保持 hard 面板（等用户确认）');
+  assert.equal(shownBannerLevel('none', 'warn'), 'none', 'warn 从不「出过声」，不能凭它显示');
+  assert.equal(shownBannerLevel('none', undefined), 'none', '没出过声就不显示');
 });
