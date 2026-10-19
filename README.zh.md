@@ -226,13 +226,13 @@ New-Item -ItemType Junction `
 | `warnRatio` | `0.45` | 0.1–0.95 | 「该收尾了」的占用率（`projectedTokens / contextWindow`） |
 | `hardRatio` | `0.60` | 0.1–1 | 「该换会话了」；必须 > `warnRatio` |
 | `hysteresisRatio` | `0.05` | 0–0.2 | 迟滞：回落到 `warn − 此值` 以下才重新武装 |
-| `cooldownTurns` | `5` | 0–100 | 跨档后静默多少轮 |
+| `cooldownTurns` ~ | `5` | 0–100 | **v0.7.1 起 no-op**：冷却闸门已删（跨档每武装周期本就只响一次） |
 | `onResume` | `true` | bool | 进入一个已经很高的历史会话时也提示 |
-| `respectCompaction` | `true` | bool | 自动压缩正在压水位时不提示换会话 |
-| `crossSessionTrend` ~ | `true` | bool | **v0.5.0 起 no-op**（趋势已删，仅为兼容旧配置保留） |
-| `trendWindowHours` ~ | `24` | 1–168 | **no-op** |
-| `trendEscalateAt` ~ | `3` | 2–20 | **no-op** |
-| `pushChannel` ~ | `none` | `none`\|`wechat` | **no-op**（外推已删；填 wechat 也不会有任何推送） |
+| `respectCompaction` | `true` | bool | **只影响宿主日志**：紧跟压缩那一轮不记判定日志；不改变徽标/banner 显示 |
+| `crossSessionTrend` ~ | `true` | bool | **v0.5.0 起 no-op**（趋势已删，仅为兼容旧配置保留；v0.7.1 起设置页已隐藏） |
+| `trendWindowHours` ~ | `24` | 1–168 | **no-op**（设置页已隐藏） |
+| `trendEscalateAt` ~ | `3` | 2–20 | **no-op**（设置页已隐藏） |
+| `pushChannel` ~ | `none` | `none`\|`wechat` | **no-op**（外推已删；填 wechat 也不会有任何推送；设置页已隐藏） |
 | `pushMinLevel` ~ | `hard` | `warn`\|`hard` | **no-op** |
 | `pushCooldownMinutes` ~ | `10` | 0–1440 | **no-op** |
 | `handoverOnWarn` | `true` | bool | 跨过 `warnRatio` 时自动起草交接草稿 |
@@ -346,7 +346,8 @@ New-Item -ItemType Junction `
 - **0.60 这个 hard 线是刻意早于平台自己的动作**：平台的自动压缩点**不是固定 80%**，而是
   `min(窗口 × 0.8, 窗口 − 输出预留 − 65,536)`。本机 deepseek-flash（1,000,000 窗口 / 256,000 输出预留）算出来是
   **67.8%**（678,464 token）——与真机观察一致。把 hard 放在压缩点上会与它抢同一时刻，而
-  `respectCompaction: true` 又会在被压缩后抑制提示 ⇒ hard 档可能**永远不出声**。
+  `respectCompaction: true`（v0.7.1 起只静音宿主日志）又会让**宿主半边**在被压缩后不出声
+  ⇒ 宿主判定与界面可能短暂不一致，所以 hard 仍然要早于压缩点。
 - **说真话（v0.6.1）**：硬档正文会写上**这台机器按同一公式推算的压缩点**（例如「约 67.8%」）；
   窗口或输出预留未知时**不写数字**，只说「会静默压缩」。注意口径：**不是**「读数永久消失」——
   本插件的压缩账会抢存一行（没记下才是真没了）。

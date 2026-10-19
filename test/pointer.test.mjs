@@ -280,3 +280,31 @@ test('engine.forget：会话销毁后状态与回执都被清掉', () => {
   assert.equal(engine.snapshotOf('gone').level, 'none');
   assert.equal(engine.mirrorView({ id: 'gone' }).receiptRow, null);
 });
+
+/**
+ * v0.7.1（HANDOVER §47.2 🔴 / 审查 #7）：会话 id 护栏。
+ *
+ * 以前各处只拒 `''` 与非字符串，而宿主半边把「拿不到 id」折叠成 `'unknown'`
+ * ⇒ 所有无 id 的会话共用一个键：`/compact?sessionId=unknown` 读得到、交接块互相覆盖。
+ * 这条测试同时钉住 `observe`/`stateOf` 那两个「桶工厂」。
+ */
+test('会话 id 护栏：null / 空串 / 非字符串 / 未知 一律不建键', () => {
+  const engine = createGuardEngine(defaultConfig());
+  const hard = { projectedTokens: 900_000, contextWindow: 1_000_000 };
+  for (const bad of [null, undefined, '', 'unknown', 0, {}]) {
+    assert.equal(engine.observe(bad, hard), null, `observe(${String(bad)}) 不许给出信号`);
+    engine.setRoute(bad, { provider: 'deepseek-official', model: 'deepseek-flash' });
+    engine.setReserve(bad, 256_000);
+    engine.setPreset(bad, 'coder');
+    assert.equal(engine.compactParamsOf(bad), null, `${String(bad)} 不许成为 /compact 可读的键`);
+    engine.forget(bad);
+  }
+  assert.equal(engine.recent().length, 0, '无效 id 不许产生判定流水');
+  assert.deepEqual(engine.debugCompact(), [], '无效 id 不许进 /state.compact');
+
+  // 阳性对照：护栏不能把功能一起关掉（否则上面全绿也没有意义）
+  engine.observe('ok', hard);
+  assert.equal(engine.recent().length, 1);
+  assert.equal(engine.recent()[0].sessionId, 'ok');
+  assert.ok(engine.compactParamsOf('ok') !== null, '合法 id 必须照旧可读');
+});

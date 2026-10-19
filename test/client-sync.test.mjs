@@ -288,7 +288,21 @@ test('不注册 model-facing 工具、不注入 prompt（上下文税 = 0 的静
   }
 });
 
-test('设置字段全部 volatile（否则 dsh-settings 不生成设置页）', () => {
+/**
+ * v0.7.1：`dsh-settings` 的 `volatileForm` 只要有**任意一个** volatile 子树就会生成设置页，
+ * 而六个 no-op 键（trend×3 / push×3）刻意去掉了 volatile ⇒ 设置页不再显示假开关。
+ * 所以护栏改成：①至少一个 volatile（页面才存在）；②除 no-op 键外**其余每个**字段都必须 volatile。
+ */
+const NOOP_VOLATILE_FIELDS = new Set([
+  'crossSessionTrend',
+  'trendWindowHours',
+  'trendEscalateAt',
+  'pushChannel',
+  'pushMinLevel',
+  'pushCooldownMinutes',
+]);
+
+test('设置字段 volatile 覆盖：至少一个（页面才生成）+ 除 no-op 外全部必需', () => {
   const host = read('lib/index.js');
   const schemaBlock = host.slice(host.indexOf('export const Config'), host.indexOf('export function normalizeConfig'));
   assert.ok(schemaBlock.length > 0, '找不到 Config');
@@ -298,10 +312,26 @@ test('设置字段全部 volatile（否则 dsh-settings 不生成设置页）', 
   const fields = [...schemaBlock.matchAll(/^\s{2}(\w+):\s*Schema\.(\w+)\(/gm)].map((m) => m[1]);
   assert.ok(fields.length >= 8, `只解析出 ${fields.length} 个字段，是不是 schema 结构改了`);
   assert.ok(fields.includes('locale'), `字段集合里应当有 locale（实际：${fields.join(',')}）`);
-  for (const field of fields) {
+
+  const chunkOf = (field) => {
     const fieldBlock = schemaBlock.slice(schemaBlock.indexOf(`  ${field}:`));
     const nextField = fieldBlock.slice(1).search(/^\s{2}\w+:\s*Schema\./m);
-    const chunk = nextField === -1 ? fieldBlock : fieldBlock.slice(0, nextField + 1);
-    assert.match(chunk, /\.volatile\(\)/, `字段 ${field} 没写 .volatile() —— 设置页会整个不生成`);
+    return nextField === -1 ? fieldBlock : fieldBlock.slice(0, nextField + 1);
+  };
+
+  let volatileCount = 0;
+  for (const field of fields) {
+    const chunk = chunkOf(field);
+    const isVolatile = /\.volatile\(\)/.test(chunk);
+    if (isVolatile) volatileCount += 1;
+    if (!NOOP_VOLATILE_FIELDS.has(field)) {
+      assert.ok(isVolatile, `字段 ${field} 没写 .volatile() —— 它不会出现在设置页`);
+    }
+  }
+  assert.ok(volatileCount >= 1, '至少要有一个 volatile 字段，否则 dsh-settings 整个设置页不生成');
+  for (const field of NOOP_VOLATILE_FIELDS) {
+    const chunk = chunkOf(field);
+    if (chunk === '') continue;
+    assert.ok(!/\.volatile\(\)/.test(chunk), `no-op 字段 ${field} 不该再标 volatile（设置页不该显示假开关）`);
   }
 });

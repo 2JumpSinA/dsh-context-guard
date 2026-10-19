@@ -125,9 +125,11 @@ try {
   const nodes = Object.values(refs).filter((node) => node?.type === 'boolean' || node?.type === 'number' || node?.type === 'string');
   check('Config 至少 10 个字段', nodes.length >= 10, `实际 ${nodes.length}`);
   const volatileCount = nodes.filter((node) => node?.meta?.volatile === true).length;
+  // v0.7.1：六个 no-op 键（trend×3 / push×3）刻意不标 volatile ⇒ 设置页不显示假开关。
+  // 页面仍然会生成（还有 12 个 volatile 字段），所以判据从「全部」改成「至少一个 + 大部分」。
   check(
-    '所有字段都标了 volatile（否则 dsh-settings 不生成设置页）',
-    volatileCount === nodes.length,
+    '至少一个字段 volatile（否则 dsh-settings 不生成设置页），且 no-op 键不显示',
+    volatileCount >= 1 && volatileCount >= nodes.length - 6,
     `volatile ${volatileCount} / 共 ${nodes.length}`,
   );
   const described = nodes.filter((node) => typeof node?.meta?.description === 'string' && node.meta.description.length > 0).length;
@@ -531,6 +533,24 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
     check('/compact：缺 sessionId ⇒ 400', noId.status === 400 && noId.body?.reason === 'missing-sessionId', JSON.stringify(noId.body));
     const post = call('POST', `${COMPACT_ROUTE}?sessionId=route1`);
     check('/compact：非 GET ⇒ 405', post.status === 405 && post.body?.reason === 'method-not-allowed', JSON.stringify(post.body));
+
+    // 6a4b. v0.7.1（审查 #7 / §47.2 🔴）：拿不到 id 的会话**不许**共用一个 'unknown' 桶
+    const recentBefore = services.get('contextGuard').recent().length;
+    fire({ header: {} }, { projectedTokens: 900_000, contextWindow: 1_000_000 });
+    const shared = call('GET', `${COMPACT_ROUTE}?sessionId=unknown`);
+    check(
+      '无 id 会话不进 unknown 桶（/compact 读不到它）',
+      services.get('contextGuard').recent().length === recentBefore &&
+        shared.body?.ok === false &&
+        shared.body?.reason === 'unknown-session',
+      JSON.stringify(shared.body),
+    );
+    try {
+      for (const listener of handlers.get('session/created') ?? []) listener({ header: {} });
+      check('无 id 的 session/created 既不抛、也不建桶', services.get('contextGuard').compactParamsOf('unknown') === null);
+    } catch (error) {
+      check('无 id 的 session/created 既不抛、也不建桶', false, error.message);
+    }
   }
 
   // 6a5. v0.7.0（审查 #11/#8）：换路由后旧预留必须失效（不许「新窗口配旧预留」）

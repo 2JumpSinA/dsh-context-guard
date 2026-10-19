@@ -207,6 +207,15 @@ function boot(overrides = {}) {
     driveOnly(session, event = { type: 'assistant/message' }) {
       registry.drive(session, { ...event, seq: registry.nextSeq() });
     },
+    /**
+     * v0.7.1（§47.2 T2-3）：**严格时序** —— 注册表先 drive（真机上本单元排在 token-meter 之后），
+     * 插件自己的 `session/event` 处理器随后才 fold 引擎状态；**不**补「下一事件」。
+     * `sessionEvent()` 把两步和「下一事件」打包在一起，切不开这一帧。
+     */
+    hostEvent(session, event) {
+      registry.drive(session, { ...event, seq: registry.nextSeq() });
+      for (const fn of handlers.get('session/event') ?? []) fn(session, event);
+    },
   };
 }
 
@@ -437,4 +446,101 @@ gate('schema 不是摆设：parse 合法时**原样返回**（引用稳定），
   const stateOk = { id: 'x', level: 'hard', armed: true, turn: 1, cooldown: 0, ratio: 0.9 };
   assert.equal(def.stateSchema.parse(stateOk), stateOk, '合法 state 必须原样返回');
   assert.deepEqual(def.stateSchema.parse({}), { id: '', level: 'none', armed: false, turn: 0, cooldown: 0, ratio: null });
+});
+
+/**
+ * —— §47.2 🟡：`drive()` 时序 harness（把「仅参数变化不重发」从注释变成断言）——
+ *
+ * 这几条钉的是「注册表语义 × 本插件契约」之间那条缝：
+ *   · 假注册表的 `drive()` 只在 `!Object.is(next, before)` 时才取 view、才广播；
+ *   · 本插件把**判定**镜像进 state（level/armed/turn/cooldown/ratio），而 `reserve`/`headroom`
+ *     这些**不参与判定**的参数只住在引擎 Map 里、不进 state。
+ * ⇒ 两个必须成立的推论：① 仅有参数变化 ⇒ 广播 0 次；② 但 view 读引擎当前值 ⇒ snapshot 立刻可见。
+ */
+
+gate('T2-1 时序：同一事件内镜像不落后一帧（跨档那一帧已经是新档位）', () => {
+  const h = boot();
+  const s = session('t2-1');
+  const frames = [];
+  h.registry.listeners.add((_session, key, value) => {
+    if (key === 'contextGuard') frames.push(value);
+  });
+
+  h.project(s, p(0.7));
+  assert.equal(frames.length, 1, '一次跨档事件只该产出一帧');
+  assert.equal(frames[0].level, 'hard', '这一帧必须已经是新档位');
+  const snap = h.engine.snapshotOf('t2-1');
+  assert.equal(frames[0].level, snap.level, 'wire 帧与引擎判定必须来自同一次折叠');
+  assert.equal(frames[0].ratio, snap.occupancy.ratio);
+  assert.equal(h.registry.snapshot(s).values.contextGuard, frames[0], '跨档后立刻快照，必须就是这一帧');
+});
+
+gate('T2-2 时序：仅 setReserve 变化 ⇒ 广播 0 次，但 snapshot 立刻读到新参数', () => {
+  const h = boot();
+  const s = session('t2-2');
+  const frames = [];
+  h.registry.listeners.add((_session, key, value) => {
+    if (key === 'contextGuard') frames.push(value);
+  });
+
+  h.project(s, p(0.3, 1_000_000));
+  const baseline = frames.length;
+  const before = h.registry.snapshot(s).values.contextGuard;
+  assert.equal(before.compactReserve, null);
+  assert.equal(before.compactPercent, null, '没有预留 ⇒ 算不出压缩点（绝不编数字）');
+
+  h.engine.setReserve('t2-2', 256_000);
+  assert.equal(frames.length, baseline, 'setReserve 不许触发广播（它不在镜像 state 里）');
+
+  h.driveOnly(s, { type: 'request/header' });
+  h.driveOnly(s, { type: 'tool/end' });
+  assert.equal(frames.length, baseline, '无关事件也不许把参数变化算成「值变了」');
+
+  const after = h.registry.snapshot(s).values.contextGuard;
+  assert.notStrictEqual(after, before, '参数变了 ⇒ view 必须换引用');
+  assert.equal(after.compactReserve, 256_000, 'snapshot 必须立刻拿到新预留');
+  assert.equal(after.compactPercent, 67.8, '1,000,000 / 256,000 / 65,536 ⇒ 67.8%');
+  assert.deepEqual(
+    [after.level, after.armed, after.turn, after.cooldown, after.ratio],
+    [before.level, before.armed, before.turn, before.cooldown, before.ratio],
+    '判定面五个字段一个都没动 —— 这正是「不重发」的正当理由',
+  );
+
+  h.project(s, p(0.5, 1_000_000));
+  assert.equal(frames.length, baseline + 1);
+  assert.equal(frames.at(-1).compactReserve, 256_000, '下一帧必须已经带上新预留');
+});
+
+gate('T2-3 时序：compaction/end 的一帧滞后是显性规格（下一事件追平）', () => {
+  const h = boot();
+  const s = session('t2-3');
+  const frames = [];
+  h.registry.listeners.add((_session, key, value) => {
+    if (key === 'contextGuard') frames.push(value);
+  });
+
+  h.project(s, p(0.3, 1_000_000));
+  const baseline = frames.length;
+
+  // 注册表先 drive（插件还没 fold）⇒ 这一帧不广播；随后插件推进轮次。
+  h.hostEvent(s, { type: 'turn/end' });
+  assert.equal(frames.length, baseline, 'turn/end 自己那一帧不广播（引擎在 drive 之后才动）');
+  assert.equal(h.engine.snapshotOf('t2-3').turn, 1, '处理器已经推进了轮次');
+  assert.equal(h.registry.stateOf(s, 'contextGuard').turn, 0, '镜像**单元状态**仍落后一帧 —— 这是规格');
+  // 落后的是广播，不是读取：view 读引擎当前值 ⇒ 一读就是新的
+  assert.equal(h.registry.snapshot(s).values.contextGuard.turn, 1, 'view 永远读当前真源');
+  h.registry.drive(s, { type: 'session/idle', seq: h.registry.nextSeq() });
+  assert.equal(frames.length, baseline + 1, '下一事件补上落后的一帧（只补一次）');
+  assert.equal(frames.at(-1).turn, 1);
+
+  // compaction/end 同形状：标记不上线 ⇒ 它自己那一帧必然缺席
+  const beforeCompaction = frames.length;
+  h.hostEvent(s, { type: 'compaction/end', data: { compactionId: 'c1' } });
+  assert.equal(frames.length, beforeCompaction, 'compaction/end 自己那一帧不广播');
+  assert.equal(h.engine.snapshotOf('t2-3').compactionDrop, true, '引擎已经记下「刚压过」');
+  assert.equal(Object.hasOwn(h.registry.snapshot(s).values.contextGuard, 'compactionDrop'), false, '这个标记不上线');
+
+  h.project(s, p(0.7, 1_000_000));
+  assert.equal(frames.length, beforeCompaction + 1, '压缩后的第一次观测才把事实带上 wire');
+  assert.equal(frames.at(-1).level, 'hard', '压缩后档位照常更新（被抑制的是「提示」，不是状态）');
 });

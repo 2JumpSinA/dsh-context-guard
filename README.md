@@ -244,13 +244,13 @@ Editable on the settings page, all applied live; every `config` field is volatil
 | `warnRatio` | `0.45` | 0.1–0.95 | Occupancy (`projectedTokens / contextWindow`) at which "time to wrap up" fires |
 | `hardRatio` | `0.60` | 0.1–1 | "Time to start a new session"; must be > `warnRatio` |
 | `hysteresisRatio` | `0.05` | 0–0.2 | Hysteresis: re-arm only after falling back below `warn − this value` |
-| `cooldownTurns` | `5` | 0–100 | How many turns of silence follow a level change |
+| `cooldownTurns` ~ | `5` | 0–100 | **no-op since v0.7.1**: the cooldown gate was removed (a crossing already speaks once per arming cycle) |
 | `onResume` | `true` | bool | Also warn when entering an already-high historical session |
-| `respectCompaction` | `true` | bool | Stay quiet while automatic compaction is already reducing the level |
-| `crossSessionTrend` ~ | `true` | bool | **no-op since v0.5.0** (trend removed; kept for old configs) |
-| `trendWindowHours` ~ | `24` | 1–168 | **no-op** |
-| `trendEscalateAt` ~ | `3` | 2–20 | **no-op** |
-| `pushChannel` ~ | `none` | `none`\|`wechat` | **no-op** (push removed; `wechat` pushes nothing) |
+| `respectCompaction` | `true` | bool | **Host log only**: skip the decision log entry right after a compaction; the badge/banner still reflect the real level |
+| `crossSessionTrend` ~ | `true` | bool | **no-op since v0.5.0** (trend removed; kept for old configs; hidden from Settings since v0.7.1) |
+| `trendWindowHours` ~ | `24` | 1–168 | **no-op** (hidden from Settings) |
+| `trendEscalateAt` ~ | `3` | 2–20 | **no-op** (hidden from Settings) |
+| `pushChannel` ~ | `none` | `none`\|`wechat` | **no-op** (push removed; `wechat` pushes nothing; hidden from Settings) |
 | `pushMinLevel` ~ | `hard` | `warn`\|`hard` | **no-op** |
 | `pushCooldownMinutes` ~ | `10` | 0–1440 | **no-op** |
 | `handoverOnWarn` | `true` | bool | Auto-draft the handoff block once `warnRatio` is crossed |
@@ -360,7 +360,8 @@ Two consequences worth stating plainly:
 - **The 0.60 hard line deliberately precedes the platform's own move**: the automatic compaction point is **not a fixed 80%** but
   `min(window × 0.8, window − reservedOutput − 65,536)`. On this machine's deepseek-flash (1,000,000 window / 256,000 output reserve) that is
   **67.8%** (678,464 tokens) — matching what the real machine does. Putting hard at that point would race it for the same moment, and
-  `respectCompaction: true` suppresses the warning after a compaction ⇒ the hard band might **never speak at all**.
+  `respectCompaction: true` (host-log only since v0.7.1) would keep the **host** silent right after a compaction ⇒ host decisions and the
+  UI could drift apart, which is why hard still sits before the compaction point.
 - **Speaking the truth (v0.6.1)**: the hard-tier body prints the threshold **computed on this machine with the same formula** (e.g. "about 67.8%");
   when the window or the output reserve is unknown it prints **no number** and only says "the platform silently compacts".
   The wording deliberately does not claim "the reading is lost forever" — the ledger keeps a row (if one was written).
