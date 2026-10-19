@@ -454,6 +454,31 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
     check('环境指纹：modelTag 为 provider/model', view.modelTag === 'deepseek-official/deepseek-flash', String(view.modelTag));
   }
 
+  // 6a3. v0.6.4（真机：硬档正文没有数字）：请求头缺 `maxTokens` 时必须回落到适配器默认值
+  {
+    const { projections, fire } = projectionsFor();
+    const { ctx, services, handlers } = fakeCtx({});
+    services.set('sessionProjections', projections);
+    services.set('compaction', { config: { auto: true, thresholdRatio: 0.8, headroomTokens: 65536, modelPolicies: [] } });
+    services.set('llm', { resolveModelInfo: async () => ({ context: { contextWindow: 1_000_000 }, defaultMaxTokens: 256_000 }) });
+    apply(ctx, {});
+    const s = session('cfg2');
+    fire(s, { projectedTokens: 400_000, contextWindow: 1_000_000 });
+    for (const listener of handlers.get('session/event') ?? []) {
+      listener(s, {
+        type: 'request/header',
+        data: { header: { config: { provider: 'deepseek-official', model: 'deepseek-flash' } } },
+      });
+    }
+    await new Promise((r) => setTimeout(r, 30));
+    const view = services.get('contextGuard').mirrorView({ id: 'cfg2' });
+    check(
+      '缺 maxTokens ⇒ 回落 defaultMaxTokens，压缩点仍然算得出（67.8%）',
+      view.compactBasis === 'config' && view.compactPercent === 67.8,
+      JSON.stringify(view),
+    );
+  }
+
   // 6b–6e（外推推送 / 跨会话趋势）已随 v0.5.0 删除：行为、i18n、状态面、测试一起下线。
 
   // 6f. 自动交接草稿：跨 warn 起草 → 步进刷新（幂等）→ 写失败 fail-soft
