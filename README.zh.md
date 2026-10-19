@@ -350,9 +350,13 @@ New-Item -ItemType Junction `
 - **说真话（v0.6.1）**：硬档正文会写上**这台机器按同一公式推算的压缩点**（例如「约 67.8%」）；
   窗口或输出预留未知时**不写数字**，只说「会静默压缩」。注意口径：**不是**「读数永久消失」——
   本插件的压缩账会抢存一行（没记下才是真没了）。
-- **v0.6.2：配置优先（精确态）。** 装了 `dsh-compaction-basic` 时直接读它**解析后**的
-  `thresholdRatio` / `headroomTokens` / `modelPolicies`（`ctx.get('compaction').config`），给的是**精确值**；
-  读不到才退回默认参数并标「推算」。徽标 tooltip 同时写明来源与环境（`provider/model` · 智能体预设）。
+- **v0.6.12：普适性边界（换机器/换模型能自动跟着变，但有一处读不到）。**
+  窗口来自 `contextPressure.contextWindow`、输出预留来自 `request/header.config.maxTokens`
+  （缺则回落适配器 `defaultMaxTokens`）——**都是运行期按会话/路由读的**，所以换机器、换模型会自动变。
+  但 `dsh-compaction-basic` 的 `thresholdRatio`（0.8）/ `headroomTokens`（65,536）/ `modelPolicies`
+  是**挂在每个 agent leaf 上的服务配置，第三方插件读不到**（已核实：根 ctx 注入与 agent scoped ctx 都拿不到），
+  只能用**出厂默认值**推算 —— 如果你在 profile 里覆盖了这三项，本插件的数字会**偏**。
+  所以文案固定标「推算」并写明来源，**不声称精确**。徽标 tooltip 同时给出环境（`provider/model` · 智能体预设）。
 - 两档的分工（v0.6.3）：`warnRatio`（0.45）= **静默起草**交接草稿，**不再弹 banner**；
   `hardRatio`（0.60）= **唯一提醒**（跨档时出现一次，直到你点「知道了 / ×」）。
 

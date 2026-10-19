@@ -364,10 +364,15 @@ Two consequences worth stating plainly:
 - **Speaking the truth (v0.6.1)**: the hard-tier body prints the threshold **computed on this machine with the same formula** (e.g. "about 67.8%");
   when the window or the output reserve is unknown it prints **no number** and only says "the platform silently compacts".
   The wording deliberately does not claim "the reading is lost forever" — the ledger keeps a row (if one was written).
-- **v0.6.2: config first (exact state).** When `dsh-compaction-basic` is installed the plugin reads its **resolved**
-  `thresholdRatio` / `headroomTokens` / `modelPolicies` (`ctx.get('compaction').config`) and prints the **exact** point;
-  only when that is unreadable does it fall back to defaults and say "estimated". The badge tooltip also shows the
-  source and the environment (`provider/model` · agent preset).
+- **v0.6.12: universality boundary (it adapts to machine and model, with one unreadable input).**
+  The window comes from `contextPressure.contextWindow`, the output reserve from `request/header.config.maxTokens`
+  (falling back to the adapter's `defaultMaxTokens`) — **both are read at runtime, per session and per route**, so a
+  different machine or model is picked up automatically. But `dsh-compaction-basic`'s `thresholdRatio` (0.8) /
+  `headroomTokens` (65,536) / `modelPolicies` live on a **per-agent-leaf service that a third-party plugin cannot read**
+  (verified: neither root-context injection nor the agent's scoped context exposes it), so the point is computed from
+  **factory defaults** — if you override those three in your profile, this plugin's number will be **off**. The copy
+  therefore always says "estimated" and names the source; it never claims exactness. The badge tooltip also shows the
+  environment (`provider/model` · agent preset).
 - Division of labour (v0.6.3): `warnRatio` (0.45) = **draft the handoff silently**, no banner any more;
   `hardRatio` (0.60) = the **only reminder** (shown once when crossed, until you dismiss it).
 
