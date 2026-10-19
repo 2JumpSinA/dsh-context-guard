@@ -23,6 +23,8 @@ import {
   LEVEL_ORDER,
   displayLevel,
   shownBannerLevel,
+  compactPercentPoint,
+  resolveCompactBasis,
 } from '../lib/policy.mjs';
 // 判定状态机 v0.4.3 搬到 engine.mjs（policy.mjs 会被逐字内联进浏览器 bundle，
 // 状态机住在里面 ⇒ 客户端永远「有一套可用的判定逻辑」，那正是 P1-5 漂移的入口）。
@@ -300,4 +302,41 @@ test('shownBannerLevel：只有 hard 出声；出过声的 banner 不因压缩�
   assert.equal(shownBannerLevel('warn', 'hard'), 'hard', '回落到 warn 区间也保持 hard 面板（等用户确认）');
   assert.equal(shownBannerLevel('none', 'warn'), 'none', 'warn 从不「出过声」，不能凭它显示');
   assert.equal(shownBannerLevel('none', undefined), 'none', '没出过声就不显示');
+});
+
+/**
+ * v0.6.12：压缩点公式的**唯一实现**（宿主与浏览器共用）。
+ * 这三个样例就是本机与常见路由的真实数字；任何一条漂了，说明公式被改坏。
+ */
+test('compactPercentPoint：formula 的三组真机样例 + 全部 fail-closed 输入', () => {
+  // deepseek-account：1,048,576 窗口 / 256,000 预留 ⇒ 727,040 ≈ 69.3%
+  assert.equal(compactPercentPoint({ r: 0.8, headroom: 65536, reserve: 256000, window: 1048576 }), 69.3);
+  // deepseek-official：1,000,000 / 256,000 ⇒ 678,464 ≈ 67.8%
+  assert.equal(compactPercentPoint({ r: 0.8, headroom: 65536, reserve: 256000, window: 1000000 }), 67.8);
+  // 1M / 128K 预留 ⇒ min(800,000, 803,392) = 800,000 = 80%
+  assert.equal(compactPercentPoint({ r: 0.8, headroom: 65536, reserve: 131072, window: 1000000 }), 80);
+
+  // fail-closed：缺输入、非法输入、阈值非正 —— 一律 null，绝不编数字
+  assert.equal(compactPercentPoint(null), null);
+  assert.equal(compactPercentPoint({}), null);
+  assert.equal(compactPercentPoint({ r: 0.8, headroom: 65536, reserve: null, window: 1e6 }), null);
+  assert.equal(compactPercentPoint({ r: 0.8, headroom: 65536, reserve: 256000, window: 0 }), null);
+  assert.equal(compactPercentPoint({ r: 1.5, headroom: 65536, reserve: 256000, window: 1e6 }), null);
+  // 小窗口 + 大预留：200K / 131K ⇒ min(160,000, 3,392) = 3,392 ≈ 1.7%（文档里那个「配置坑」）
+  assert.equal(compactPercentPoint({ r: 0.8, headroom: 65536, reserve: 131072, window: 200000 }), 1.7);
+  // 窗口被预留彻底吃光（200K / 200K / 64K）⇒ 阈值为负 ⇒ null，而不是 0%
+  assert.equal(compactPercentPoint({ r: 0.8, headroom: 65536, reserve: 200000, window: 200000 }), null);
+});
+
+/**
+ * v0.6.12：真机事故的回归护栏 —— 「参数来自路由、来源却来自视图」时，
+ * 正文会算出百分比但不写数字。来源必须跟着参数走。
+ */
+test('resolveCompactBasis：路由来源优先于缺席的视图来源', () => {
+  assert.equal(resolveCompactBasis(undefined, 'default'), 'default', '视图缺席 + 路由 default ⇒ default');
+  assert.equal(resolveCompactBasis('none', 'default'), 'default', '视图 none 不许压过路由的来源');
+  assert.equal(resolveCompactBasis('config', 'default'), 'config', '视图可信时用视图');
+  assert.equal(resolveCompactBasis('off', 'default'), 'off');
+  assert.equal(resolveCompactBasis(undefined, undefined), 'none');
+  assert.equal(resolveCompactBasis('nonsense', 'nonsense'), 'none');
 });
