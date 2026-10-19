@@ -90,8 +90,9 @@ test('zh / en 每个 key 用到的变量名集合一致（防漏插 / 防拼错�
 test('makeT：未知 key 原样返回（fail-soft），未知语言退回默认语言', () => {
   assert.equal(makeT('zh')('nope.key'), 'nope.key');
   assert.equal(makeT('en')('nope.key'), 'nope.key');
-  assert.equal(makeT('de')('push.title'), STRINGS.zh['push.title']({}, makeT('zh')));
-  assert.notEqual(makeT('en')('push.title'), makeT('zh')('push.title'));
+  // v0.5.0：取样键从已删除的 `push.title` 换成仍在的 banner 标题键
+  assert.equal(makeT('de')('banner.title.warn', { percent: 50 }), STRINGS.zh['banner.title.warn']({ percent: 50 }));
+  assert.notEqual(makeT('en')('banner.title.warn'), makeT('zh')('banner.title.warn'));
 });
 
 test('hasHan：认得汉字，不误判英文与符号', () => {

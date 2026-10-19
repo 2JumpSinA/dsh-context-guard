@@ -8,6 +8,12 @@ It consumes the `contextPressure` projection that the official `dsh-token-meter`
 
 **Context tax = 0**: it registers no model-facing tool, injects no prompt section, and sends no extra request. The host does the arithmetic, the UI does the talking.
 
+> 🆕 **v0.5.0 (local, unreleased)**: the product narrows from "prompt tool" to "record tool + a handoff you can walk back from".
+> **WeChat push** and **cross-session trend** are removed (their config keys stay as no-ops for compatibility);
+> the per-session "pre-compaction snapshot" becomes one global **compaction ledger** (idempotent by `compactionId`,
+> peak-before value, capped rows); the banner's degraded state gained a **compaction receipt**; and the write path
+> is fail-safe — a broken block marker means **refuse to write**, never swallow the rest of the file. See `HANDOVER.md` §39.
+
 > ⚠️ **Do not run `npm i dsh-context-guard`** — that unscoped name is a **third party's** package
 > (by `greenlv`). This plugin's name is scoped: **`@2jumpsina/dsh-context-guard`**, published on npm
 > (see [Install](#install)).
@@ -355,9 +361,23 @@ Two consequences worth stating plainly:
 - **The 0.60 hard line deliberately precedes the platform's own move**: observed session peaks never exceed about 80% (the platform compacts around there). Putting hard at 80% would race it for the same moment, and `respectCompaction: true` suppresses the warning after a compaction ⇒ the hard band might **never speak at all**.
 - Division of labour: `warnRatio` = start wrapping up / write the handoff; `hardRatio` = start a new session.
 
-## Extrapolation push (WeChat, off by default)
+## Compaction ledger (v0.5.0)
 
-With `pushChannel: 'wechat'` the same verdict is sent to the local `wechatNotify` service (a soft dependency, usually provided by a plugin such as [`dsh-damage-pulse`](https://www.npmjs.com/package/dsh-damage-pulse)). A missing channel or a failed send is recorded as status only (`push.lastResult.code === 'channel-absent'`, `failed++`), and the exception **never escapes**. The push is an explicit choice — this plugin will not message your phone unless you ask it to.
+After the platform compacts, **the pre-compaction reading is gone for good** (the platform eats its own evidence). On `compaction/end` the plugin appends one row to a ledger inside the working directory's `HANDOVER.md`, in its own marker block, so a draft refresh can never overwrite it:
+
+```markdown
+<!-- dsh-context-guard:ledger:begin -->
+### 🗜️ Compaction ledger (appended automatically, do not edit)
+
+| # | time | session | peak before | size | total spend | files | event |
+|---|---|---|---|---|---|---|---|
+| 1 | 2026-10-19 15:42 | a4b6cffb | 79.8% | ≈160K/1000K | ¥1.84 | 5 | 7f19c0a1 |
+<!-- dsh-context-guard:ledger:end -->
+```
+
+Three invariants: **idempotent by `compactionId`** (a repeated delivery writes one row), **peak before compaction** (not the lower value afterwards), and **failures are never silent** (a failed write shows up in `/state.ledger.failed`). After a compaction the banner's degraded state adds one receipt line: "before compaction 79.8% · ledger row 1 · now 20%".
+
+> It is **decoupled from `handoverOnWarn`**: turning off auto-drafting turns off prompts, not the record.
 
 ## Security and privacy
 

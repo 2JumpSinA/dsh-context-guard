@@ -9,6 +9,12 @@ npm 包名：**`@2jumpsina/dsh-context-guard`** · [English](README.md)
 
 **上下文税 = 0**：不注册任何 model-facing 工具、不注入 prompt 段落、不额外发请求。宿主算数，UI 说话。
 
+> 🆕 **v0.5.0（本机，未发布）**：定位从「提示工具」收缩为「记录工具 + 可回原处的交接」。
+> 删掉**微信外推**与**跨会话趋势**（配置键保留为 no-op，只为兼容旧配置）；
+> 「压缩前快照」换成一张全局**压缩账**（按 `compactionId` 幂等、取压缩前峰值、上限淘汰）；
+> banner 的降级态多一行**压缩回执**；写入路径加了 fail-safe（块标记坏了就**拒绝写**，绝不吞正文）。
+> 详见 `HANDOVER.md` §39。
+
 > ⚠️ **别敲 `npm i dsh-context-guard`** —— 那个不带 scope 的名字是**第三方**的包（作者 `greenlv`）。
 > 本插件的包名是 scoped 的：**`@2jumpsina/dsh-context-guard`**，已发布到 npm（见[安装](#安装)）。
 
@@ -342,12 +348,26 @@ New-Item -ItemType Junction `
   ⇒ hard 档可能**永远不出声**。
 - 两档的分工：`warnRatio` = 开始收尾/写交接；`hardRatio` = 换会话。
 
-## 外推推送（微信，默认关）
+## 压缩账（v0.5.0）
 
-`pushChannel: 'wechat'` 时，把同一句结论发给本机的 `wechatNotify` 服务（软依赖，通常由
-[`dsh-damage-pulse`](https://www.npmjs.com/package/dsh-damage-pulse) 一类插件提供）。
-通道缺席或发送失败只记状态（`push.lastResult.code === 'channel-absent'`、`failed++`），**不外溢异常**。
-推送是显式选择 —— 这个插件不会在你没要求的情况下往你手机里发消息。
+平台压缩之后，**压缩前的读数就永久查不到了**（平台自己吃掉了自己的证据）。插件在 `compaction/end` 时
+往工作目录的 `HANDOVER.md` 追加一行账（独立标记块，**不会被草稿刷新冲掉**）：
+
+```markdown
+<!-- dsh-context-guard:ledger:begin -->
+### 🗜️ 压缩账（自动追加，勿手改）
+
+| # | 时间 | 会话 | 压缩前峰值 | 尺寸 | 累计花费 | 改过文件 | 事件 |
+|---|---|---|---|---|---|---|---|
+| 1 | 2026-10-19 15:42 | a4b6cffb | 79.8% | ≈160K/1000K | ¥1.84 | 5 | 7f19c0a1 |
+<!-- dsh-context-guard:ledger:end -->
+```
+
+三条不变量：**按 `compactionId` 幂等**（同一事件重复投递只落一行）、**取压缩前峰值**（不是压缩后的低值）、
+**失败不静默**（写失败计入 `/state.ledger.failed`）。压缩后 banner 的降级态会多一行回执：
+「压缩前 79.8% · 账本第 1 行 · 现在 20%」。
+
+> 与 `handoverOnWarn` **解耦**：关掉自动起草是关提示，不是关记录。
 
 ## 安全与隐私
 

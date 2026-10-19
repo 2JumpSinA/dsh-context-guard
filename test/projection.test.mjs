@@ -224,7 +224,20 @@ const gate = (name, fn) =>
 
 // v0.4.6：wire 里多了**宿主阈值三字段**（`warnRatio` / `hardRatio` / `enabled`）——
 // 客户端据此在「宿主档位还没被事件驱动」时做只读的显示兜底（§37.4）。
-const VIEW_KEYS = ['armed', 'cooldown', 'enabled', 'hardRatio', 'level', 'ratio', 'turn', 'warnRatio'];
+// v0.5.0：又多了**压缩回执三字段**（`receiptPercent` / `receiptRow` / `receiptAt`）。
+const VIEW_KEYS = [
+  'armed',
+  'cooldown',
+  'enabled',
+  'hardRatio',
+  'level',
+  'ratio',
+  'receiptAt',
+  'receiptPercent',
+  'receiptRow',
+  'turn',
+  'warnRatio',
+];
 
 gate('注册契约：key=contextGuard、stateVersion=0、四个回调与 wire 齐全，且只注册一次', () => {
   const h = boot();
@@ -255,6 +268,9 @@ gate('snapshot 契约：出现 contextGuard，view 形状正确且是扁平纯 J
     warnRatio: 0.45,
     hardRatio: 0.6,
     enabled: true,
+    receiptPercent: null,
+    receiptRow: null,
+    receiptAt: null,
   });
   t.diagnostic(`初始 view：${JSON.stringify(initial.values.contextGuard)}`);
 
@@ -362,13 +378,28 @@ gate('schema 不是摆设：parse 合法时**原样返回**（引用稳定），
     warnRatio: 0.45,
     hardRatio: 0.6,
     enabled: true,
+    receiptPercent: null,
+    receiptRow: null,
+    receiptAt: null,
   };
   assert.equal(def.wire.viewSchema.parse(good), good, '合法 view 必须原样返回，否则引用稳定性被 parse 毁掉');
 
   const fixed = def.wire.viewSchema.parse({ level: 'nonsense', armed: 1, turn: -3, cooldown: 'x', ratio: 5 });
   assert.deepEqual(
     fixed,
-    { level: 'none', armed: false, turn: 0, cooldown: 0, ratio: 1, warnRatio: null, hardRatio: null, enabled: true },
+    {
+      level: 'none',
+      armed: false,
+      turn: 0,
+      cooldown: 0,
+      ratio: 1,
+      warnRatio: null,
+      hardRatio: null,
+      enabled: true,
+      receiptPercent: null,
+      receiptRow: null,
+      receiptAt: null,
+    },
     '非法 view 必须被夹成合法形状',
   );
 

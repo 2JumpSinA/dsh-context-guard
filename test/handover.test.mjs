@@ -13,15 +13,14 @@ import {
   endMarker,
   TODO_BEGIN,
   TODO_END,
+  LEDGER_BEGIN,
+  LEDGER_END,
   changedFiles,
   composeHandoverBlock,
-  composePreCompactionBlock,
   fmtTime,
   isTodoFilled,
-  preBeginMarker,
-  preEndMarker,
   todoFilledIn,
-  upsertPreCompactionBlock,
+  upsertLedgerRow,
   recentTurns,
   resolveHandoverPath,
   toolMix,
@@ -306,35 +305,62 @@ test('isTodoFilled / todoFilledIn：空模板=未补，写进去=已补，且只
   assert.equal(todoFilledIn(file, 'missing'), false, '没有块就是未补');
 });
 
-// v0.4.1：压缩前快照 —— 平台压缩后读数就没了，所以必须在压缩时把**峰值**落盘
-test('composePreCompactionBlock / upsertPreCompactionBlock：峰值读数 + 独立块 + 幂等替换', () => {
-  const reading = { known: true, ratio: 0.677, projectedTokens: 677_000, contextWindow: 1_000_000 };
-  const material = {
-    tokenCost: { cost: 10.88, calls: 600 },
-    contextTimeline: {
-      fileOps: [
-        { kind: 'write', tool: 'edit', path: 'lib/a.mjs' },
-        { kind: 'write', tool: 'write', path: 'README.md' },
-      ],
-    },
-  };
-  const block = composePreCompactionBlock({ sessionId: 's9', now: 1_790_000_000_000, reading, material, locale: 'zh' });
-  assert.ok(block.startsWith(preBeginMarker('s9')), '块以自己的标记开头');
-  assert.ok(block.trimEnd().endsWith(preEndMarker));
-  assert.match(block, /67\.7%/, '压缩前水位');
-  assert.match(block, /¥10\.88/, '花费');
-  assert.match(block, /lib\/a\.mjs/, '改过的文件');
+// v0.5.0：压缩账 —— 一张全局表，按 compactionId 幂等，峰值取压缩前读数
+const ledgerEntry = (over = {}) => ({
+  at: '2026-10-19 15:42',
+  sessionId: 's9',
+  peakPercent: 67.7,
+  size: '≈677K/1000K',
+  cost: 10.88,
+  files: 2,
+  eventId: 'c0ffee01',
+  ...over,
+});
 
-  const main = `${beginMarker('s9')}\n机器事实\n${endMarker}`;
-  const first = upsertPreCompactionBlock(`# 头\n\n${main}\n`, 's9', block);
+test('upsertLedgerRow：追加成一张表，行里带峰值 / 花费 / 文件数 / 事件 id', () => {
+  const first = upsertLedgerRow('# 交接\n', ledgerEntry());
   assert.equal(first.action, 'appended');
+  assert.ok(first.text.includes(LEDGER_BEGIN) && first.text.includes(LEDGER_END), '要带自己的标记块');
+  assert.match(first.text, /\| 1 \| 2026-10-19 15:42 \| s9 \| 67\.7% \| ≈677K\/1000K \| ¥10\.88 \| 2 \| c0ffee01 \|/);
+  assert.equal(first.seq, 1);
 
-  const second = upsertPreCompactionBlock(first.text, 's9', block.replace('67.7%', '70.0%'));
-  assert.equal(second.action, 'replaced', '同会话再压缩 ⇒ 替换而不是累积');
-  assert.equal(second.text.split(preBeginMarker('s9')).length - 1, 1, '只有一块快照');
-  assert.ok(second.text.includes('70.0%'));
-  assert.ok(!second.text.includes('67.7%'));
-  assert.ok(second.text.includes(beginMarker('s9')), '自动草稿块不受影响');
+  const second = upsertLedgerRow(first.text, ledgerEntry({ at: '2026-10-19 16:10', eventId: 'c0ffee02' }));
+  assert.equal(second.action, 'appended');
+  assert.equal(second.seq, 2, '行号递增');
+  assert.equal(second.text.split(LEDGER_BEGIN).length - 1, 1, '全局只有一块账本');
+  assert.ok(second.text.includes('c0ffee01') && second.text.includes('c0ffee02'), '两行都在');
+});
+
+test('upsertLedgerRow：同一 compactionId 重复投递只落一行', () => {
+  const first = upsertLedgerRow('', ledgerEntry({ eventId: 'same' }));
+  const again = upsertLedgerRow(first.text, ledgerEntry({ eventId: 'same', peakPercent: 99 }));
+  assert.equal(again.action, 'unchanged');
+  assert.equal(again.text, first.text, '不写盘、不改字节');
+  assert.equal(again.seq, 1, '回的是已有那一行');
+});
+
+test('upsertLedgerRow：每会话最多 3 行，超了淘汰最旧的（单次只淘汰一行）', () => {
+  let text = '';
+  for (let i = 1; i <= 4; i += 1) text = upsertLedgerRow(text, ledgerEntry({ eventId: `e${i}`, at: `t${i}` })).text;
+  const rows = text.split('\n').filter((line) => /^\|\s*\d+\s*\|/.test(line));
+  assert.equal(rows.length, 3, '4 次压缩同一会话 ⇒ 只留 3 行');
+  assert.ok(!text.includes('t1'), '最旧的那行被淘汰');
+  assert.ok(text.includes('t4'), '最新那行在');
+});
+
+test('upsertLedgerRow：账本块只有 begin、没有 end ⇒ 拒绝写，绝不吞后面的正文', () => {
+  const broken = `# 头\n\n${LEDGER_BEGIN}\n| 1 | old |\n\n# 后面是人类正文\n`;
+  const out = upsertLedgerRow(broken, ledgerEntry({ eventId: 'x' }));
+  assert.equal(out.action, 'broken-block');
+  assert.equal(out.text, broken, '一个字都不改');
+});
+
+test('upsertLedgerRow：账行不碰自动草稿块与待补区', () => {
+  const draft = `${beginMarker('s9')}\n机器事实\n${TODO_BEGIN}\n- [x] 结论：已补\n${TODO_END}\n${endMarker}`;
+  const out = upsertLedgerRow(`# 头\n\n${draft}\n`, ledgerEntry());
+  assert.ok(out.text.includes(draft), '草稿块逐字节不变');
+  assert.equal(todoFilledIn(out.text, 's9'), true, '待补状态不受账本影响');
+  assert.equal(out.text.split(LEDGER_BEGIN).length - 1, 1);
 });
 
 test('resolveHandoverPath：绝对路径原样；相对路径要 cwd；没有 cwd 就返回 null', () => {

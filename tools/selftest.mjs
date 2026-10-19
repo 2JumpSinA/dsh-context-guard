@@ -403,15 +403,21 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
     const { projections } = projectionsFor();
     const { ctx, services, routes } = fakeCtx({ withWebServer: true });
     services.set('sessionProjections', projections);
-    apply(ctx, { pushChannel: 'wechat', pushCooldownMinutes: 10 });
+    apply(ctx, {});
     check('注册了宿主状态路由（client 半边读真源的通路）', routes.has(STATE_ROUTE), JSON.stringify([...routes.keys()]));
 
     const state = stateOf(routes);
     check('状态路由返回 200 + JSON', state.status === 200 && /application\/json/.test(state.headers?.['Content-Type'] ?? ''), JSON.stringify(state.headers));
     check('状态路由禁止缓存', state.headers?.['Cache-Control'] === 'no-store');
-    check('状态路由带归一化后的真源配置', state.payload?.config?.pushChannel === 'wechat' && state.payload?.config?.warnRatio === FACTORY.warnRatio, JSON.stringify(state.payload?.config));
-    check('状态路由带趋势与最近判定', state.payload?.trend !== undefined && Array.isArray(state.payload?.recent), JSON.stringify(Object.keys(state.payload ?? {})));
-    check('状态路由带推送状态面', state.payload?.push?.channel === 'wechat', JSON.stringify(state.payload?.push));
+    check('状态路由带归一化后的真源配置', state.payload?.config?.warnRatio === FACTORY.warnRatio, JSON.stringify(state.payload?.config));
+    check(
+      '状态路由带最近判定 + 账本计数（push/trend 已删除）',
+      Array.isArray(state.payload?.recent) &&
+        state.payload?.ledger !== undefined &&
+        state.payload?.push === undefined &&
+        state.payload?.trend === undefined,
+      JSON.stringify(Object.keys(state.payload ?? {})),
+    );
 
     // 路由不能因为宿主状态畸形就把响应挂死
     const res = fakeRes();
@@ -424,65 +430,7 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
     check('状态路由自己从不抛（抛了会把响应挂死）', threw === false && res.out.status === 200);
   }
 
-  // 6b. 推送：开通道 + hard 跨档 ⇒ 真发一条，且正文含交接文档
-  {
-    const { projections, fire } = projectionsFor();
-    const { ctx, services, routes, wechatCalls } = fakeCtx({ withWebServer: true, withWechat: true });
-    services.set('sessionProjections', projections);
-    apply(ctx, { pushChannel: 'wechat', pushCooldownMinutes: 0 });
-    fire(session('p1'), { projectedTokens: 170_000, contextWindow: 200_000 });
-    await new Promise((r) => setTimeout(r, 0));
-    check('hard 跨档触发外推推送', wechatCalls.length === 1, JSON.stringify(wechatCalls));
-    check('推送正文带交接文档与占比', /HANDOVER\.md/.test(wechatCalls[0] ?? '') && /85%/.test(wechatCalls[0] ?? ''), String(wechatCalls[0]).slice(0, 160));
-    const state = stateOf(routes);
-    check('推送结果记进状态路由（sent=1）', state.payload?.push?.sent === 1 && state.payload?.push?.lastResult?.ok === true, JSON.stringify(state.payload?.push));
-
-    // warn 档（低于 pushMinLevel 的默认 hard）不许推
-    fire(session('p1'), { projectedTokens: 130_000, contextWindow: 200_000 });
-    await new Promise((r) => setTimeout(r, 0));
-    check('低于 pushMinLevel 的档不外推', wechatCalls.length === 1, `calls=${wechatCalls.length}`);
-  }
-
-  // 6c. 推送：默认关（通道 none）⇒ 一条都不发
-  {
-    const { projections, fire } = projectionsFor();
-    const { ctx, services, wechatCalls } = fakeCtx({ withWebServer: true, withWechat: true });
-    services.set('sessionProjections', projections);
-    apply(ctx, {});
-    fire(session('p2'), { projectedTokens: 190_000, contextWindow: 200_000 });
-    await new Promise((r) => setTimeout(r, 0));
-    check('默认 pushChannel=none 时一条都不推', wechatCalls.length === 0, JSON.stringify(wechatCalls));
-  }
-
-  // 6d. 推送：分钟级冷却挡住同一时刻的第二个会话
-  {
-    const { projections, fire } = projectionsFor();
-    const { ctx, services, wechatCalls } = fakeCtx({ withWebServer: true, withWechat: true });
-    services.set('sessionProjections', projections);
-    apply(ctx, { pushChannel: 'wechat', pushCooldownMinutes: 10 });
-    fire(session('p3'), { projectedTokens: 170_000, contextWindow: 200_000 });
-    fire(session('p4'), { projectedTokens: 180_000, contextWindow: 200_000 });
-    await new Promise((r) => setTimeout(r, 0));
-    check('冷却窗口内第二个会话不再推', wechatCalls.length === 1, `calls=${wechatCalls.length}`);
-  }
-
-  // 6e. 推送：通道缺席 / 发送失败都必须 fail-soft（不抛、只记状态）
-  {
-    const { projections, fire } = projectionsFor();
-    const { ctx, services, routes } = fakeCtx({ withWebServer: true });
-    services.set('sessionProjections', projections);
-    apply(ctx, { pushChannel: 'wechat', pushCooldownMinutes: 0 });
-    let threw = false;
-    try {
-      fire(session('p5'), { projectedTokens: 170_000, contextWindow: 200_000 });
-      await new Promise((r) => setTimeout(r, 0));
-    } catch (error) {
-      threw = true;
-    }
-    const state = stateOf(routes);
-    check('通道缺席时不抛（fail-soft）', threw === false);
-    check('通道缺席记成 channel-absent 并计入 failed', state.payload?.push?.lastResult?.code === 'channel-absent' && state.payload?.push?.failed === 1, JSON.stringify(state.payload?.push));
-  }
+  // 6b–6e（外推推送 / 跨会话趋势）已随 v0.5.0 删除：行为、i18n、状态面、测试一起下线。
 
   // 6f. 自动交接草稿：跨 warn 起草 → 步进刷新（幂等）→ 写失败 fail-soft
   {
@@ -587,16 +535,7 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
     check('拿不到 cwd 时跳过而不是乱写（fail-soft）', threw4 === false && existsSync(join(process.cwd(), 'SHOULD-NOT-EXIST.md')) === false);
   }
 
-  {
-    const { projections, fire } = projectionsFor();
-    const { ctx, services, routes } = fakeCtx({ withWebServer: true, withWechat: true, wechatReplies: false });
-    services.set('sessionProjections', projections);
-    apply(ctx, { pushChannel: 'wechat', pushCooldownMinutes: 0 });
-    fire(session('p6'), { projectedTokens: 170_000, contextWindow: 200_000 });
-    await new Promise((r) => setTimeout(r, 0));
-    const state = stateOf(routes);
-    check('发送失败只记状态、不外溢异常', state.payload?.push?.lastResult?.code === 'send-failed' && state.payload?.push?.failed === 1, JSON.stringify(state.payload?.push));
-  }
+  // v0.5.0：外推推送已删除（含「发送失败只记状态」那条）。
 
   // 6f. 无 webServer 服务时不许炸（软依赖）
   {
@@ -780,15 +719,18 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
       projections.snapshot = () => ({ asOfSeq: 0, values: {} });
     }
 
-    // 6i. 压缩前快照（v0.4.1）：压缩后投影已经是低水位 ⇒ 快照必须取**压缩前峰值**
+    // 6i. 压缩账（v0.5.0）：压缩后投影已经是低水位 ⇒ 账行必须记**压缩前峰值**
     fire(s, { projectedTokens: 600_000, contextWindow: 1_000_000 });
     await new Promise((r) => setTimeout(r, 50));
     fire(s, { projectedTokens: 200_000, contextWindow: 1_000_000 }); // 模拟压缩后
-    for (const listener of handlers.get('session/event') ?? []) listener(s, { type: 'compaction/end' });
-    await new Promise((r) => setTimeout(r, 120));
+    for (const listener of handlers.get('session/event') ?? []) {
+      listener(s, { type: 'compaction/end', data: { compactionId: 'self-1', turn: 9 } });
+    }
+    await new Promise((r) => setTimeout(r, 150));
     const afterCompact = existsSync(file) ? readFileSync(file, 'utf8') : '';
-    check('压缩后写了「压缩前快照」块', afterCompact.includes('pre-compaction'), afterCompact.slice(-300));
-    check('快照取的是压缩前峰值 60.0%（不是压缩后的 20%）', afterCompact.includes('60.0%'), afterCompact.slice(-500));
+    check('压缩后追加了一行压缩账', afterCompact.includes('dsh-context-guard:ledger:begin'), afterCompact.slice(-300));
+    check('账行记的是压缩前峰值 60.0%（不是压缩后的 20%）', afterCompact.includes('60.0%'), afterCompact.slice(-500));
+    check('账行带事件 id（幂等键）', afterCompact.includes('self-1'), afterCompact.slice(-300));
   }
 }
 
@@ -836,9 +778,21 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
     check('init 只依赖会话头（id 来自 header）', state.id === 'proj-s1' && state.level === 'none', JSON.stringify(state));
     const view = def.wire.viewSchema.parse(def.wire.view(state));
     check(
-      'view 是 level/armed/turn/cooldown/ratio + 阈值三字段（warnRatio/hardRatio/enabled）',
+      'view 是 level/armed/turn/cooldown/ratio + 阈值三字段 + 压缩回执三字段',
       JSON.stringify(Object.keys(view).sort()) ===
-        JSON.stringify(['armed', 'cooldown', 'enabled', 'hardRatio', 'level', 'ratio', 'turn', 'warnRatio']),
+        JSON.stringify([
+          'armed',
+          'cooldown',
+          'enabled',
+          'hardRatio',
+          'level',
+          'ratio',
+          'receiptAt',
+          'receiptPercent',
+          'receiptRow',
+          'turn',
+          'warnRatio',
+        ]),
       JSON.stringify(view),
     );
     check(

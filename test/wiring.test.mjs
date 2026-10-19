@@ -22,7 +22,7 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { preBeginMarker } from '../lib/handover.mjs';
+import { LEDGER_BEGIN } from '../lib/handover.mjs';
 
 // —— 把宿主的裸说明符指到本地桩（必须在 import `lib/index.js` **之前**注册）——
 const STUB_URL = new URL('./fixtures/schemastery-stub.mjs', import.meta.url).href;
@@ -206,15 +206,16 @@ gate('D2 回归：失败载荷（error 是字符串）之后那次观测不被�
   assert.equal(h.shots(), 2, '失败的压缩没有把水位压下来 ⇒ 该喊就喊（历史 bug：这里被静音）');
 });
 
-gate('D2 回归：失败压缩不写「压缩前快照」，成功的才写', async (t) => {
+gate('D2 回归：失败压缩不写压缩账，成功的才写', async (t) => {
   const okDir = mkdtempSync(join(tmpdir(), 'cg-wiring-ok-'));
   const badDir = mkdtempSync(join(tmpdir(), 'cg-wiring-bad-'));
-  const h = boot({ respectCompaction: true, handoverOnWarn: true, handoverPath: 'HANDOVER.md' });
+  // v0.5.0：账本与 handoverOnWarn **解耦** ⇒ 关掉自动起草也照样记账
+  const h = boot({ respectCompaction: true, handoverOnWarn: false, handoverPath: 'HANDOVER.md' });
 
   const ok = { id: 'snap-ok', cwd: okDir };
   const bad = { id: 'snap-bad', cwd: badDir };
 
-  // 快照取的是**环形记录里的峰值**：没有先观测过就不会写
+  // 峰值取的是**环形记录里的峰值**：没有先观测过就写「峰值未知」而不是跳过
   h.project(ok, p(0.7));
   h.project(bad, p(0.7));
 
@@ -224,15 +225,18 @@ gate('D2 回归：失败压缩不写「压缩前快照」，成功的才写', as
   const okFile = join(okDir, 'HANDOVER.md');
   const badFile = join(badDir, 'HANDOVER.md');
 
-  // 阳性对照：成功的压缩确实落了一份压缩前快照（证明这条接线本身是通的）
-  await waitFor(() => existsSync(okFile) && readFileSync(okFile, 'utf8').includes(preBeginMarker('snap-ok')), 5_000);
-  assert.ok(readFileSync(okFile, 'utf8').includes(preBeginMarker('snap-ok')), '成功压缩应写压缩前快照');
+  // 阳性对照：成功的压缩确实落了一行账（证明这条接线本身是通的）
+  await waitFor(() => existsSync(okFile) && readFileSync(okFile, 'utf8').includes(LEDGER_BEGIN), 5_000);
+  const okText = readFileSync(okFile, 'utf8');
+  assert.ok(okText.includes(LEDGER_BEGIN), '成功压缩应写压缩账');
+  assert.match(okText, /70\.0%/, '账行写的是压缩前峰值（70%），不是压缩后的低值');
+  assert.ok(okText.includes('| ok |') || okText.includes('| ok '), '事件 id 落进「事件」列');
 
-  // 阴性：失败的压缩**不该**落这个块（同一目录里可能有自动草稿块，那是另一组标记，不算数）
+  // 阴性：失败的压缩**不该**落账行（失败路径连文件都不该新建）
   await delay(300);
   const badText = existsSync(badFile) ? readFileSync(badFile, 'utf8') : '';
-  assert.equal(badText.includes(preBeginMarker('snap-bad')), false, '失败压缩不该写压缩前快照');
-  t.diagnostic(`bad 目录是否已有落盘文件（自动草稿块）：${existsSync(badFile)}`);
+  assert.equal(badText.includes(LEDGER_BEGIN), false, '失败压缩不该写压缩账');
+  t.diagnostic(`bad 目录是否已有落盘文件：${existsSync(badFile)}`);
 });
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
