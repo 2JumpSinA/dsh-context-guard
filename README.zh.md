@@ -350,6 +350,9 @@ New-Item -ItemType Junction `
 - **说真话（v0.6.1）**：硬档正文会写上**这台机器按同一公式推算的压缩点**（例如「约 67.8%」）；
   窗口或输出预留未知时**不写数字**，只说「会静默压缩」。注意口径：**不是**「读数永久消失」——
   本插件的压缩账会抢存一行（没记下才是真没了）。
+- **v0.6.2：配置优先（精确态）。** 装了 `dsh-compaction-basic` 时直接读它**解析后**的
+  `thresholdRatio` / `headroomTokens` / `modelPolicies`（`ctx.get('compaction').config`），给的是**精确值**；
+  读不到才退回默认参数并标「推算」。徽标 tooltip 同时写明来源与环境（`provider/model` · 智能体预设）。
 - 两档的分工：`warnRatio` = 开始收尾/写交接；`hardRatio` = 换会话。
 
 ## 压缩账（v0.5.0）

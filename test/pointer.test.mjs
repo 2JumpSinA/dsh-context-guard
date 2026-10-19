@@ -158,35 +158,82 @@ test('composeHandoverBlock：没有工作时，标题明确写「未核」而不
   assert.match(block, /未核（无工作目录）/);
 });
 
-test('P3：hard 档正文写入「按 DSH 公式推算的自动压缩点」，未知时不许写数字', () => {
-  const hard = describe({ level: 'hard', ratio: 0.8, projectedTokens: 800_000, contextWindow: 1_000_000 }, { lang: 'zh', compactPercent: 67.8 });
-  assert.match(hard.body, /67\.8%/, '本机 deepseek-flash：678464/1000000');
+test('P3：hard 档正文按三态给数字（config 精确 / default 近似 / none 不给 / off 换正文）', () => {
+  const hard = describe(
+    { level: 'hard', ratio: 0.8, projectedTokens: 800_000, contextWindow: 1_000_000 },
+    { lang: 'zh', compactPercent: 67.8, compactBasis: 'config' },
+  );
+  assert.match(hard.body, /67\.8%/);
   assert.match(hard.body, /静默压缩/);
   assert.match(hard.body, /拿不回来/);
+  assert.ok(!hard.body.includes('约 67.8%'), 'config 态不许说「约」');
   assert.ok(!hard.body.includes('账本第'), '硬档正文不许用回执措辞（那是降级态的事）');
-  assert.ok(!hard.body.includes('自动压缩点约 80%'), '不再把 80% 写死成平台的压缩点');
 
-  const noPoint = describe({ level: 'hard', ratio: 0.8 }, { lang: 'zh' });
-  assert.ok(!noPoint.body.includes('自动压缩点'), '窗口/输出预留未知时不写数字');
+  const estimated = describe(
+    { level: 'hard', ratio: 0.8 },
+    { lang: 'zh', compactPercent: 67.8, compactBasis: 'default' },
+  );
+  assert.match(estimated.body, /约 67\.8%/, 'default 态必须写清是推算');
+  assert.match(estimated.body, /默认参数/);
 
-  const warn = describe({ level: 'warn', ratio: 0.45, projectedTokens: 450_000, contextWindow: 1_000_000 }, { lang: 'zh', compactPercent: 67.8 });
-  assert.ok(!warn.body.includes('67.8%'), '45% 档不搬压缩点，否则失去「还能继续干」的含义');
-  assert.ok(!warn.body.includes('80%'));
+  const unknown = describe({ level: 'hard', ratio: 0.8 }, { lang: 'zh', compactBasis: 'none' });
+  assert.ok(!unknown.body.includes('自动压缩点'), '算不出来时不许写数字');
+
+  const off = describe({ level: 'hard', ratio: 0.8 }, { lang: 'zh', compactBasis: 'off' });
+  assert.match(off.body, /自动压缩是关掉的/);
+
+  const warn = describe(
+    { level: 'warn', ratio: 0.45, projectedTokens: 450_000, contextWindow: 1_000_000 },
+    { lang: 'zh', compactPercent: 67.8, compactBasis: 'config' },
+  );
+  assert.ok(!warn.body.includes('67.8%'), '45% 档不搬压缩点');
 });
 
-test('自动压缩点：按 min(窗口×0.8, 窗口−输出预留−65536) 推算（与 DSH 同一公式）', () => {
-  const engine = createGuardEngine(defaultConfig());
-  engine.observe('c', { projectedTokens: 400_000, contextWindow: 1_000_000 });
-  engine.setReserve('c', 256_000);
-  assert.equal(engine.mirrorView({ id: 'c' }).compactPercent, 67.8, 'deepseek-flash 默认：678,464/1,000,000');
-  engine.setReserve('c', 131_072);
-  assert.equal(engine.mirrorView({ id: 'c' }).compactPercent, 80, '1M 窗口 + 128K 预留 ⇒ 800,000');
+test('自动压缩点：公式 + 三态 basis（config 优先于 default；auto=false ⇒ off；modelPolicies 精确合并）', () => {
+  const withConfig = (config) => createGuardEngine(defaultConfig(), { compactionConfig: () => config });
+  const baseCfg = { auto: true, thresholdRatio: 0.8, headroomTokens: 65536, modelPolicies: [] };
 
-  engine.observe('d', { projectedTokens: 10_000, contextWindow: 200_000 });
-  engine.setReserve('d', 131_072);
-  assert.equal(engine.mirrorView({ id: 'd' }).compactPercent, 1.7, '小窗口 + 大预留 ⇒ 压缩点极低（配置坑）');
+  // L1 配置态：读到 DSH 解析后的配置
+  const a = withConfig(baseCfg);
+  a.observe('c', { projectedTokens: 400_000, contextWindow: 1_000_000 });
+  a.setReserve('c', 256_000);
+  a.setRoute('c', { provider: 'deepseek-official', model: 'deepseek-flash' });
+  assert.equal(a.mirrorView({ id: 'c' }).compactPercent, 67.8);
+  assert.equal(a.mirrorView({ id: 'c' }).compactBasis, 'config');
 
-  assert.equal(engine.mirrorView({ id: 'unknown' }).compactPercent, null, '窗口/预留未知 ⇒ null，不编数字');
+  // 默认态：服务缺席
+  const b = createGuardEngine(defaultConfig(), { compactionConfig: () => null });
+  b.observe('c', { projectedTokens: 400_000, contextWindow: 1_000_000 });
+  b.setReserve('c', 256_000);
+  assert.equal(b.mirrorView({ id: 'c' }).compactPercent, 67.8);
+  assert.equal(b.mirrorView({ id: 'c' }).compactBasis, 'default');
+
+  // auto=false ⇒ off，且不给数字
+  const off = withConfig({ ...baseCfg, auto: false });
+  off.observe('c', { projectedTokens: 400_000, contextWindow: 1_000_000 });
+  off.setReserve('c', 256_000);
+  assert.equal(off.mirrorView({ id: 'c' }).compactPercent, null);
+  assert.equal(off.mirrorView({ id: 'c' }).compactBasis, 'off');
+
+  // modelPolicies 按 provider+model 精确合并（阈值 0.5 ⇒ min(500000, 678464) = 500000 = 50%）
+  const ov = withConfig({
+    ...baseCfg,
+    modelPolicies: [{ provider: 'zai-coding-cn', model: 'glm-5.2', thresholdRatio: 0.5 }],
+  });
+  ov.observe('c', { projectedTokens: 400_000, contextWindow: 1_000_000 });
+  ov.setReserve('c', 256_000);
+  ov.setRoute('c', { provider: 'zai-coding-cn', model: 'glm-5.2' });
+  assert.equal(ov.mirrorView({ id: 'c' }).compactPercent, 50);
+  // 不匹配的路由不受影响
+  ov.setRoute('c', { provider: 'zai-coding-cn', model: 'glm-4.7' });
+  assert.equal(ov.mirrorView({ id: 'c' }).compactPercent, 67.8);
+
+  // 缺窗口/预留 ⇒ none；环境指纹随路由/预设下发
+  assert.equal(a.mirrorView({ id: 'none' }).compactPercent, null);
+  assert.equal(a.mirrorView({ id: 'none' }).compactBasis, 'none');
+  assert.equal(a.mirrorView({ id: 'c' }).modelTag, 'deepseek-official/deepseek-flash');
+  a.setPreset('c', 'coder');
+  assert.equal(a.mirrorView({ id: 'c' }).presetTag, 'coder');
 });
 
 test('P3：压缩回执与降级态文案不含平台「约 80%」断言（两个时态分开）', () => {

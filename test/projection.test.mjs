@@ -228,11 +228,14 @@ const gate = (name, fn) =>
 // v0.6.1：多了**自动压缩点**（`compactPercent`，按 DSH 公式推算）。
 const VIEW_KEYS = [
   'armed',
+  'compactBasis',
   'compactPercent',
   'cooldown',
   'enabled',
   'hardRatio',
   'level',
+  'modelTag',
+  'presetTag',
   'ratio',
   'receiptAt',
   'receiptPercent',
@@ -274,6 +277,9 @@ gate('snapshot 契约：出现 contextGuard，view 形状正确且是扁平纯 J
     receiptRow: null,
     receiptAt: null,
     compactPercent: null,
+    compactBasis: 'none',
+    modelTag: null,
+    presetTag: null,
   });
   t.diagnostic(`初始 view：${JSON.stringify(initial.values.contextGuard)}`);
 
@@ -384,7 +390,10 @@ gate('schema 不是摆设：parse 合法时**原样返回**（引用稳定），
     receiptPercent: null,
     receiptRow: null,
     receiptAt: null,
-    compactPercent: null,
+    compactPercent: 67.8,
+    compactBasis: 'config',
+    modelTag: 'deepseek-official/deepseek-flash',
+    presetTag: null,
   };
   assert.equal(def.wire.viewSchema.parse(good), good, '合法 view 必须原样返回，否则引用稳定性被 parse 毁掉');
 
@@ -404,6 +413,9 @@ gate('schema 不是摆设：parse 合法时**原样返回**（引用稳定），
       receiptRow: null,
       receiptAt: null,
       compactPercent: null,
+      compactBasis: 'none',
+      modelTag: null,
+      presetTag: null,
     },
     '非法 view 必须被夹成合法形状',
   );

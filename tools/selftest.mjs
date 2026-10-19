@@ -430,6 +430,30 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
     check('状态路由自己从不抛（抛了会把响应挂死）', threw === false && res.out.status === 200);
   }
 
+  // 6a2. v0.6.2：压缩点来源 —— 服务在场就按 DSH 解析后的配置给「精确」态
+  {
+    const { projections, fire } = projectionsFor();
+    const { ctx, services, handlers } = fakeCtx({});
+    services.set('sessionProjections', projections);
+    services.set('compaction', { config: { auto: true, thresholdRatio: 0.8, headroomTokens: 65536, modelPolicies: [] } });
+    apply(ctx, {});
+    const s = session('cfg1');
+    fire(s, { projectedTokens: 400_000, contextWindow: 1_000_000 });
+    for (const listener of handlers.get('session/event') ?? []) {
+      listener(s, {
+        type: 'request/header',
+        data: { header: { config: { provider: 'deepseek-official', model: 'deepseek-flash', maxTokens: 256_000 } } },
+      });
+    }
+    const view = services.get('contextGuard').mirrorView({ id: 'cfg1' });
+    check(
+      '压缩点来源：读到 DSH 已解析配置 ⇒ config 且 67.8%',
+      view.compactBasis === 'config' && view.compactPercent === 67.8,
+      JSON.stringify(view),
+    );
+    check('环境指纹：modelTag 为 provider/model', view.modelTag === 'deepseek-official/deepseek-flash', String(view.modelTag));
+  }
+
   // 6b–6e（外推推送 / 跨会话趋势）已随 v0.5.0 删除：行为、i18n、状态面、测试一起下线。
 
   // 6f. 自动交接草稿：跨 warn 起草 → 步进刷新（幂等）→ 写失败 fail-soft
@@ -778,15 +802,18 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
     check('init 只依赖会话头（id 来自 header）', state.id === 'proj-s1' && state.level === 'none', JSON.stringify(state));
     const view = def.wire.viewSchema.parse(def.wire.view(state));
     check(
-      'view 是 level/armed/turn/cooldown/ratio + 阈值三字段 + 压缩回执三字段 + 自动压缩点',
+      'view 是 level/armed/turn/cooldown/ratio + 阈值三字段 + 压缩回执三字段 + 压缩点/来源/环境',
       JSON.stringify(Object.keys(view).sort()) ===
         JSON.stringify([
           'armed',
+          'compactBasis',
           'compactPercent',
           'cooldown',
           'enabled',
           'hardRatio',
           'level',
+          'modelTag',
+          'presetTag',
           'ratio',
           'receiptAt',
           'receiptPercent',

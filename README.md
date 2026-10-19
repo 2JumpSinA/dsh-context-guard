@@ -364,6 +364,10 @@ Two consequences worth stating plainly:
 - **Speaking the truth (v0.6.1)**: the hard-tier body prints the threshold **computed on this machine with the same formula** (e.g. "about 67.8%");
   when the window or the output reserve is unknown it prints **no number** and only says "the platform silently compacts".
   The wording deliberately does not claim "the reading is lost forever" — the ledger keeps a row (if one was written).
+- **v0.6.2: config first (exact state).** When `dsh-compaction-basic` is installed the plugin reads its **resolved**
+  `thresholdRatio` / `headroomTokens` / `modelPolicies` (`ctx.get('compaction').config`) and prints the **exact** point;
+  only when that is unreadable does it fall back to defaults and say "estimated". The badge tooltip also shows the
+  source and the environment (`provider/model` · agent preset).
 - Division of labour: `warnRatio` = start wrapping up / write the handoff; `hardRatio` = start a new session.
 
 ## Compaction ledger (v0.5.0)
