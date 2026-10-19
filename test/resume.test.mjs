@@ -47,3 +47,17 @@ test('mirrorView：同值返回同一引用（注册表据此不广播）', () =
   const b = engine.mirrorView({ id: 'stable' });
   assert.equal(a, b, '值没变就必须是同一个引用');
 });
+
+test('seed：只折状态、不发信号（启动补判用，silent）', () => {
+  const engine = createGuardEngine(defaultConfig());
+  assert.equal(engine.seed('boot', at(0.67)), true);
+  assert.equal(engine.snapshotOf('boot').level, 'hard');
+  assert.equal(engine.mirrorView({ id: 'boot' }).level, 'hard');
+  assert.equal(engine.recent(10).length, 0, 'silent：不写判定日志、不外推');
+});
+
+test('seed：读数未知时返回 false 且不改状态', () => {
+  const engine = createGuardEngine(defaultConfig());
+  assert.equal(engine.seed('boot2', {}), false);
+  assert.equal(engine.mirrorView({ id: 'boot2' }).level, 'none');
+});
