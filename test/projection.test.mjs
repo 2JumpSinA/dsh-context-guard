@@ -281,7 +281,8 @@ gate('snapshot 契约：出现 contextGuard，view 形状正确且是扁平纯 J
     receiptRow: null,
     receiptAt: null,
     compactPercent: null,
-    compactBasis: 'none',
+    // v0.7.0：basis 只描述参数来源（出厂默认），不再因为「算不出百分比」折叠成 none
+    compactBasis: 'default',
     compactRatio: 0.8,
     compactHeadroom: 65536,
     compactReserve: null,

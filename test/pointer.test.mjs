@@ -164,8 +164,10 @@ test('P3：hard 档正文按三态给数字（config 精确 / default 近似 / n
     { lang: 'zh', compactPercent: 67.8, compactBasis: 'config' },
   );
   assert.match(hard.body, /67\.8%/);
-  assert.match(hard.body, /静默压缩/);
-  assert.match(hard.body, /拿不回来/);
+  assert.match(hard.body, /自动压缩/, 'v0.7.0 文案：说「不问你」而不是「静默」');
+  assert.match(hard.body, /不问你/, '用户可核：平台确实没有确认框');
+  assert.ok(!hard.body.includes('拿不回来'), 'v0.7.0：删掉不可核的「拿不回来」，改成「不再进入上下文」');
+  assert.ok(!hard.body.includes('账本'), '正文不许搬账本话术（与压缩账会抢存一行自相矛盾）');
   assert.ok(!hard.body.includes('约 67.8%'), 'config 态不许说「约」');
   assert.ok(!hard.body.includes('账本第'), '硬档正文不许用回执措辞（那是降级态的事）');
 
@@ -173,8 +175,8 @@ test('P3：hard 档正文按三态给数字（config 精确 / default 近似 / n
     { level: 'hard', ratio: 0.8 },
     { lang: 'zh', compactPercent: 67.8, compactBasis: 'default' },
   );
-  assert.match(estimated.body, /约 67\.8%/, 'default 态必须写清是推算');
-  assert.match(estimated.body, /默认参数/);
+  assert.match(estimated.body, /≈67\.8%（推算）/, 'default 态必须写清是推算');
+  assert.ok(!estimated.body.includes('自动压缩点'), '新文案不再用「自动压缩点」这个内部术语');
 
   /**
    * v0.6.13 回归：浏览器半边把这两个字段塞在 **signal** 里（不是 opts）。
@@ -188,8 +190,7 @@ test('P3：hard 档正文按三态给数字（config 精确 / default 近似 / n
     compactPercent: 69.3,
     compactBasis: 'default',
   });
-  assert.match(viaSignal.body, /约 69\.3%/, 'signal 里带的压缩点必须被认（banner 走的这条）');
-  assert.match(viaSignal.body, /默认参数/);
+  assert.match(viaSignal.body, /≈69\.3%（推算）/, 'signal 里带的压缩点必须被认（banner 走的这条）');
 
   const optsWin = describe(
     { level: 'hard', ratio: 0.8, compactPercent: 69.3, compactBasis: 'default' },
@@ -215,11 +216,11 @@ test('自动压缩点：公式 + 三态 basis（config 优先于 default；auto=
   const withConfig = (config) => createGuardEngine(defaultConfig(), { compactionConfig: () => config });
   const baseCfg = { auto: true, thresholdRatio: 0.8, headroomTokens: 65536, modelPolicies: [] };
 
-  // L1 配置态：读到 DSH 解析后的配置
+  // L1 配置态：读到 DSH 解析后的配置（先定路由再写预留：setRoute 变化会清旧预留）
   const a = withConfig(baseCfg);
   a.observe('c', { projectedTokens: 400_000, contextWindow: 1_000_000 });
-  a.setReserve('c', 256_000);
   a.setRoute('c', { provider: 'deepseek-official', model: 'deepseek-flash' });
+  a.setReserve('c', 256_000);
   assert.equal(a.mirrorView({ id: 'c' }).compactPercent, 67.8);
   assert.equal(a.mirrorView({ id: 'c' }).compactBasis, 'config');
 
@@ -243,19 +244,23 @@ test('自动压缩点：公式 + 三态 basis（config 优先于 default；auto=
     modelPolicies: [{ provider: 'zai-coding-cn', model: 'glm-5.2', thresholdRatio: 0.5 }],
   });
   ov.observe('c', { projectedTokens: 400_000, contextWindow: 1_000_000 });
-  ov.setReserve('c', 256_000);
+  // ⚠️ 顺序即契约（v0.7.0）：`setRoute` 在路由变化时会清掉旧预留，所以必须先定路由再写预留。
   ov.setRoute('c', { provider: 'zai-coding-cn', model: 'glm-5.2' });
+  ov.setReserve('c', 256_000);
   assert.equal(ov.mirrorView({ id: 'c' }).compactPercent, 50);
-  // 不匹配的路由不受影响
+  // 换路由 ⇒ 旧预留被清掉（不许拿旧模型的预留配新模型的窗口）
   ov.setRoute('c', { provider: 'zai-coding-cn', model: 'glm-4.7' });
+  assert.equal(ov.mirrorView({ id: 'c' }).compactPercent, null, '换路由后必须重算，不许沿用旧预留');
+  ov.setReserve('c', 256_000);
   assert.equal(ov.mirrorView({ id: 'c' }).compactPercent, 67.8);
 
-  // 缺窗口/预留 ⇒ none；环境指纹随路由/预设下发
+  // 缺窗口/预留 ⇒ percent null；basis 仍描述参数来源（v0.7.0：不再折叠成 none）
   assert.equal(a.mirrorView({ id: 'none' }).compactPercent, null);
-  assert.equal(a.mirrorView({ id: 'none' }).compactBasis, 'none');
-  assert.equal(a.mirrorView({ id: 'c' }).modelTag, 'deepseek-official/deepseek-flash');
+  assert.equal(a.mirrorView({ id: 'none' }).compactBasis, 'config', '配置读到了就是 config，与「算不出数字」无关');
+  assert.equal(ov.mirrorView({ id: 'c' }).modelTag, 'zai-coding-cn/glm-4.7');
   a.setPreset('c', 'coder');
   assert.equal(a.mirrorView({ id: 'c' }).presetTag, 'coder');
+  assert.equal(a.mirrorView({ id: 'c' }).modelTag, 'deepseek-official/deepseek-flash');
 });
 
 test('P3：压缩回执与降级态文案不含平台「约 80%」断言（两个时态分开）', () => {

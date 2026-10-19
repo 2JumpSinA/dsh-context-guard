@@ -178,6 +178,7 @@ function undefinedFreeIdentifiers(bundle) {
     'Object', 'Array', 'Map', 'Set', 'Math', 'JSON', 'Number', 'String', 'Boolean', 'Date', 'Error', 'TypeError',
     'ReferenceError', 'Promise', 'RegExp', 'isFinite', 'parseInt', 'queueMicrotask', 'setTimeout', 'clearTimeout',
     'fetch', // 浏览器全局：手动起草按钮 `POST DRAFT_ROUTE`（v0.3.5）；v0.4.3 起不再用它读 /state 阈值
+    'AbortController', // 浏览器全局：v0.7.0 起 `/compact` 请求带 5s 超时（挂住的 fetch 会永久占位 in-flight）
     'encodeURIComponent', // 浏览器全局：手动起草按钮把 sessionId 拼进 DRAFT_ROUTE 的 query（v0.3.5）
     'require', 'rgba', // CSS 颜色函数会以字符串形式出现在内联样式里
     'constructor', 'context', // 类构造器名与策略里的 `(context = defaultConfig())` 默认参数

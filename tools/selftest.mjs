@@ -113,7 +113,7 @@ function fakeCtx({ withProjections = true, withWebServer = false, withWechat = f
 const session = (id) => ({ id, header: { id } });
 
 // —— 1. Config 契约
-const { Config, name, inject, apply, normalizeConfig, createGuardEngine, STATE_ROUTE, DRAFT_ROUTE } = mod;
+const { Config, name, inject, apply, normalizeConfig, createGuardEngine, STATE_ROUTE, COMPACT_ROUTE, DRAFT_ROUTE } = mod;
 check('name 存在', typeof name === 'string' && name.length > 0);
 check('inject 是数组且不硬依赖 sessionProjections', Array.isArray(inject) && !inject.includes('sessionProjections'), `inject=${JSON.stringify(inject)}`);
 check('Config 是 schemastery 节点（有 toJSON）', Boolean(Config) && typeof Config.toJSON === 'function');
@@ -482,6 +482,79 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
   }
 
   // 6b–6e（外推推送 / 跨会话趋势）已随 v0.5.0 删除：行为、i18n、状态面、测试一起下线。
+
+  // 6a4. v0.7.0（审查 #22）：`/compact` 只读路由的**契约**——此前零测试，三条阻塞项都能在绿灯下存在
+  {
+    const { projections, fire } = projectionsFor();
+    const { ctx, services, handlers, routes } = fakeCtx({ withWebServer: true });
+    services.set('sessionProjections', projections);
+    services.set('compaction', { config: { auto: true, thresholdRatio: 0.8, headroomTokens: 65536, modelPolicies: [] } });
+    apply(ctx, {});
+    const s = session('route1');
+    fire(s, { projectedTokens: 400_000, contextWindow: 1_000_000 });
+    for (const listener of handlers.get('session/event') ?? []) {
+      listener(s, {
+        type: 'request/header',
+        data: { header: { config: { provider: 'deepseek-official', model: 'deepseek-flash', maxTokens: 256_000 } } },
+      });
+    }
+    const route = routes.get(COMPACT_ROUTE);
+    const call = (method, url) => {
+      const out = {};
+      route.handler(
+        { method, url, headers: {} },
+        {
+          writeHead(status) {
+            out.status = status;
+          },
+          end(body) {
+            out.body = body === undefined ? null : JSON.parse(String(body));
+          },
+        },
+      );
+      return out;
+    };
+    const ok = call('GET', `${COMPACT_ROUTE}?sessionId=route1`);
+    check(
+      '/compact：已知会话 ⇒ 200 + ok:true + 三参数 + percent',
+      ok.status === 200 && ok.body?.ok === true && ok.body?.compact?.reserve === 256_000,
+      JSON.stringify(ok.body),
+    );
+    check(
+      '/compact：basis 只描述参数来源（缺窗口也不折叠成 none）',
+      ok.body?.compact?.basis === 'config',
+      String(ok.body?.compact?.basis),
+    );
+    const unknown = call('GET', `${COMPACT_ROUTE}?sessionId=nope`);
+    check('/compact：未知会话 ⇒ ok:false + reason=unknown-session', unknown.body?.ok === false && unknown.body?.reason === 'unknown-session', JSON.stringify(unknown.body));
+    const noId = call('GET', COMPACT_ROUTE);
+    check('/compact：缺 sessionId ⇒ 400', noId.status === 400 && noId.body?.reason === 'missing-sessionId', JSON.stringify(noId.body));
+    const post = call('POST', `${COMPACT_ROUTE}?sessionId=route1`);
+    check('/compact：非 GET ⇒ 405', post.status === 405 && post.body?.reason === 'method-not-allowed', JSON.stringify(post.body));
+  }
+
+  // 6a5. v0.7.0（审查 #11/#8）：换路由后旧预留必须失效（不许「新窗口配旧预留」）
+  {
+    const { projections, fire } = projectionsFor();
+    const { ctx, services, handlers } = fakeCtx({});
+    services.set('sessionProjections', projections);
+    apply(ctx, {});
+    const s = session('route2');
+    fire(s, { projectedTokens: 400_000, contextWindow: 1_000_000 });
+    const engineOf = () => services.get('contextGuard');
+    const send = (cfg) => {
+      for (const listener of handlers.get('session/event') ?? []) {
+        listener(s, { type: 'request/header', data: { header: { config: cfg } } });
+      }
+    };
+    send({ provider: 'deepseek-official', model: 'deepseek-flash', maxTokens: 256_000 });
+    check('换路由前：预留就是请求头那个值', engineOf().mirrorView({ id: 'route2' }).compactReserve === 256_000);
+    send({ provider: 'zai-coding-cn', model: 'glm-5.2', maxTokens: 131_072 });
+    const after = engineOf().mirrorView({ id: 'route2' });
+    check('换路由后：预留跟着新请求走（不是旧模型的 256K）', after.compactReserve === 131_072, JSON.stringify(after));
+    check('换路由后：modelTag 同步更新', after.modelTag === 'zai-coding-cn/glm-5.2', String(after.modelTag));
+  }
+
 
   // 6f. 自动交接草稿：跨 warn 起草 → 步进刷新（幂等）→ 写失败 fail-soft
   {
