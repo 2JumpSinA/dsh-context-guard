@@ -13,7 +13,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
+/**
+ * ⚠️ **一律按 LF 读**（v0.4.4）：Windows 上 checkout 出来的源文件是 CRLF，Linux CI 是 LF。
+ * 若不归一，同一份源码在两边会生成**字符数不同**的 bundle（实测差 870 = 行数），
+ * CI 的 `git diff --exit-code`（tree must be clean）就会红，而本机永远复现不了。
+ */
+const normalize = (text) => text.replace(/\r\n/g, '\n');
+const read = (rel) => normalize(readFileSync(join(ROOT, rel), 'utf8'));
 
 /**
  * 共享模块（host 与 client 两边共用的那一份代码）**逐字内联**进 client 半边。
@@ -114,17 +120,20 @@ const generated = generate();
 if (process.argv.includes('--check')) {
   let current = '';
   try {
-    current = readFileSync(target, 'utf8');
+    current = normalize(readFileSync(target, 'utf8'));
   } catch {
     current = '';
   }
-  if (current !== generated) {
+  // 归一后再比：工作区是 CRLF、生成物是 LF 时，那不算"源码不一致"（换行不是内容）。
+  const generatedNorm = normalize(generated);
+  if (current !== generatedNorm) {
     console.log('FAIL: lib/client.js 与源码不一致 —— 跑 node scripts/build-client.mjs 重新生成');
     process.exit(1);
   }
-  console.log(`OK: lib/client.js 与 policy/UI 源一致（${generated.length} 字节）`);
+  console.log(`OK: lib/client.js 与 policy/UI 源一致（${generatedNorm.length} 字节）`);
   process.exit(0);
 }
 
-writeFileSync(target, generated, 'utf8');
+// 落盘也统一 LF —— 与 .gitattributes 的 `eol=lf` 对齐，跨平台生成物逐字节一致。
+writeFileSync(target, normalize(generated), 'utf8');
 console.log(`OK: 已生成 lib/client.js（${generated.length} 字节）`);
