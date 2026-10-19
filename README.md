@@ -247,12 +247,6 @@ Editable on the settings page, all applied live; every `config` field is volatil
 | `cooldownTurns` ~ | `5` | 0–100 | **no-op since v0.7.1**: the cooldown gate was removed (a crossing already speaks once per arming cycle) |
 | `onResume` | `true` | bool | Also warn when entering an already-high historical session |
 | `respectCompaction` | `true` | bool | **Host log only**: skip the decision log entry right after a compaction; the badge/banner still reflect the real level |
-| `crossSessionTrend` ~ | `true` | bool | **no-op since v0.5.0** (trend removed; kept for old configs; hidden from Settings since v0.7.1) |
-| `trendWindowHours` ~ | `24` | 1–168 | **no-op** (hidden from Settings) |
-| `trendEscalateAt` ~ | `3` | 2–20 | **no-op** (hidden from Settings) |
-| `pushChannel` ~ | `none` | `none`\|`wechat` | **no-op** (push removed; `wechat` pushes nothing; hidden from Settings) |
-| `pushMinLevel` ~ | `hard` | `warn`\|`hard` | **no-op** |
-| `pushCooldownMinutes` ~ | `10` | 0–1440 | **no-op** |
 | `handoverOnWarn` | `true` | bool | Auto-draft the handoff block once `warnRatio` is crossed |
 | `handoverPath` | `HANDOVER.md` | string | Relative to the **session working directory**, or an absolute path |
 | `handoverRefreshPercent` | `5` | 1–25 | Refresh the draft every additional N percentage points of occupancy |

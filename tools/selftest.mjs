@@ -154,19 +154,25 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
   const raw = {
     warnRatio: ref(() => warn),
     hardRatio: ref(() => 0.44),
-    pushChannel: ref(() => 'wechat'),
-    pushCooldownMinutes: ref(() => 30),
+    // v0.7.2：`pushChannel` / `pushCooldownMinutes` 已从 schema 退场；用仍存在的 `handoverTurns`
+    // 验证「volatile 引用被摊平」这条不变量（不能因为删键把这条护栏一起删掉）。
+    handoverTurns: ref(() => 9),
     enabled: ref(() => false),
   };
   const resolved = normalizeConfig(raw);
   check(
     'volatile 引用被摊平（否则 apply 拿到的是默认值）',
-    resolved.warnRatio === 0.33 && resolved.hardRatio === 0.44 && resolved.pushChannel === 'wechat' && resolved.enabled === false,
-    JSON.stringify({ warn: resolved.warnRatio, hard: resolved.hardRatio, push: resolved.pushChannel, enabled: resolved.enabled }),
+    resolved.warnRatio === 0.33 && resolved.hardRatio === 0.44 && resolved.handoverTurns === 9 && resolved.enabled === false,
+    JSON.stringify({ warn: resolved.warnRatio, hard: resolved.hardRatio, turns: resolved.handoverTurns, enabled: resolved.enabled }),
   );
   warn = 0.5;
   check('同一引用第二次读拿到新值（设置改完立即生效的前提）', normalizeConfig(raw).warnRatio === 0.5);
-  check('不认识的通道仍然退回 none', normalizeConfig({ pushChannel: ref(() => 'telepathy') }).pushChannel === 'none');
+  // v0.7.2：`pushChannel` 已从 schema 退场 ⇒ 旧 profile 里残留的非法值既不会抛、也不会被读出来。
+  check(
+    '已退场的键：旧值不报错、也不再被读取',
+    normalizeConfig({ pushChannel: ref(() => 'telepathy') }).pushChannel === undefined,
+  );
+  check('不认识的枚举仍退回白名单值', normalizeConfig({ locale: 'klingon' }).locale === 'auto');
 }
 
 // —— 3. 无 sessionProjections 时也能挂（软依赖）

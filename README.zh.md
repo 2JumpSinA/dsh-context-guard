@@ -10,7 +10,7 @@ npm 包名：**`@2jumpsina/dsh-context-guard`** · [English](README.md)
 **上下文税 = 0**：不注册任何 model-facing 工具、不注入 prompt 段落、不额外发请求。宿主算数，UI 说话。
 
 > 🆕 **v0.5.0（本机，未发布）**：定位从「提示工具」收缩为「记录工具 + 可回原处的交接」。
-> 删掉**微信外推**与**跨会话趋势**（配置键保留为 no-op，只为兼容旧配置）；
+> 删掉**微信外推**与**跨会话趋势**（相关配置键在 v0.7.2 已从 schema 退场；旧 profile 里的残留值被安全忽略）；
 > 「压缩前快照」换成一张全局**压缩账**（按 `compactionId` 幂等、取压缩前峰值、上限淘汰）；
 > banner 的降级态多一行**压缩回执**；写入路径加了 fail-safe（块标记坏了就**拒绝写**，绝不吞正文）。
 > 详见 `HANDOVER.md` §39。
@@ -229,12 +229,6 @@ New-Item -ItemType Junction `
 | `cooldownTurns` ~ | `5` | 0–100 | **v0.7.1 起 no-op**：冷却闸门已删（跨档每武装周期本就只响一次） |
 | `onResume` | `true` | bool | 进入一个已经很高的历史会话时也提示 |
 | `respectCompaction` | `true` | bool | **只影响宿主日志**：紧跟压缩那一轮不记判定日志；不改变徽标/banner 显示 |
-| `crossSessionTrend` ~ | `true` | bool | **v0.5.0 起 no-op**（趋势已删，仅为兼容旧配置保留；v0.7.1 起设置页已隐藏） |
-| `trendWindowHours` ~ | `24` | 1–168 | **no-op**（设置页已隐藏） |
-| `trendEscalateAt` ~ | `3` | 2–20 | **no-op**（设置页已隐藏） |
-| `pushChannel` ~ | `none` | `none`\|`wechat` | **no-op**（外推已删；填 wechat 也不会有任何推送；设置页已隐藏） |
-| `pushMinLevel` ~ | `hard` | `warn`\|`hard` | **no-op** |
-| `pushCooldownMinutes` ~ | `10` | 0–1440 | **no-op** |
 | `handoverOnWarn` | `true` | bool | 跨过 `warnRatio` 时自动起草交接草稿 |
 | `handoverPath` | `HANDOVER.md` | string | 相对**会话工作目录**，或绝对路径 |
 | `handoverRefreshPercent` | `5` | 1–25 | 水位每再涨这么多点刷新一次草稿 |

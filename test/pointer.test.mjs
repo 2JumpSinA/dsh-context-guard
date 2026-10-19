@@ -164,8 +164,9 @@ test('P3：hard 档正文按三态给数字（config 精确 / default 近似 / n
     { lang: 'zh', compactPercent: 67.8, compactBasis: 'config' },
   );
   assert.match(hard.body, /67\.8%/);
-  assert.match(hard.body, /自动压缩/, 'v0.7.0 文案：说「不问你」而不是「静默」');
-  assert.match(hard.body, /不问你/, '用户可核：平台确实没有确认框');
+  // v0.7.2（阿树定稿）：「自动压缩，不问你」→「自动静默压缩」
+  assert.match(hard.body, /自动静默压缩/, '文案定稿：静默 + 自动压缩');
+  assert.ok(!hard.body.includes('不问你'), '定稿后不再用「不问你」这种口语化表述');
   assert.ok(!hard.body.includes('拿不回来'), 'v0.7.0：删掉不可核的「拿不回来」，改成「不再进入上下文」');
   assert.ok(!hard.body.includes('账本'), '正文不许搬账本话术（与压缩账会抢存一行自相矛盾）');
   assert.ok(!hard.body.includes('约 67.8%'), 'config 态不许说「约」');
