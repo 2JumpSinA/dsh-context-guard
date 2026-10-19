@@ -89,7 +89,9 @@ paying**, at the only moment when the number can still change the decision.
 
 - **The platform compacts; it does not negotiate.** Every observed session peaked at or below ~80%, which is
   exactly where DSH compacts on its own. Compaction is a safety net for the session, not a warning to you — by
-  the time it fires you have already paid for the whole climb.
+  the time it fires you have already paid for the whole climb. Since v0.6.0 the hard-tier banner says this
+  outright: the platform **silently compacts at ~80%**, and what it compresses away is gone — the only trace
+  is a ledger row if one was written (the wording deliberately does not claim "the reading is lost forever").
 - **The model cannot be the meter.** `projectedTokens` is computed by `dsh-token-meter` from the real request;
   the model cannot see how large its own prompt is, and a warning is only meaningful **after** a turn ends (that
   turn's prompt is already on the wire). Worse, any mechanism that makes the model "mind the context" has to
@@ -108,8 +110,7 @@ paying**, at the only moment when the number can still change the decision.
 - **It turns the sentence into an action**: crossing `warnRatio` drafts a machine-facts handoff block (session,
   occupancy, ledger cost, the files this session wrote, previews of the last few prompts/replies, plus
   "to be filled in" slots) into the session working directory — zero LLM, zero extra request.
-- **Outbound push is opt-in** (`pushChannel: 'none'` by default). A prompt plugin has no business messaging your
-  phone unless you asked it to.
+- **No network at all** (v0.5.0 removed the WeChat push); capabilities are `fs-read` / `fs-write` only.
 
 ### What this section does *not* claim
 
@@ -152,7 +153,7 @@ One place decides, one place displays, and a single `wire` projection links them
 | **Decision** | `lib/engine.mjs` (**host only**) | The state machine is a pure fold (`init` + `apply(state, event)`): level / armed / turn / cooldown / hysteresis are computed once, and `compaction/*` folds into that state |
 | **Projection** | `lib/index.js` (host) | Registers the verdict as the **`contextGuard`** `wire` projection: `{ level, armed, turn, cooldown, ratio }` — flat JSON, same reference while unchanged |
 | **Display** | `lib/client-source.js` (browser) | `useProjection("contextGuard")`, **read-only** (badge + one-shot banner); no thresholds, no state machine, no extra requests |
-| **Debug mirror** | `GET /api/context-guard/state` | A read-only mirror: current host config / trend / push / handoff counters. The browser half **no longer** copies thresholds from it |
+| **Debug mirror** | `GET /api/context-guard/state` | A read-only mirror: current host config / recent decisions / ledger counters / handoff stats. The browser half **no longer** copies thresholds from it |
 
 Two things this buys:
 
@@ -246,12 +247,12 @@ Editable on the settings page, all applied live; every `config` field is volatil
 | `cooldownTurns` | `5` | 0–100 | How many turns of silence follow a level change |
 | `onResume` | `true` | bool | Also warn when entering an already-high historical session |
 | `respectCompaction` | `true` | bool | Stay quiet while automatic compaction is already reducing the level |
-| `crossSessionTrend` | `true` | bool | Count how many sessions crossed the line within the window, to escalate wording |
-| `trendWindowHours` | `24` | 1–168 | Trend window (hours) |
-| `trendEscalateAt` | `3` | 2–20 | Escalate wording when this many sessions hit hard inside the window |
-| `pushChannel` | `none` | `none`\|`wechat` | Extrapolation channel (off by default) |
-| `pushMinLevel` | `hard` | `warn`\|`hard` | Level from which extrapolation starts |
-| `pushCooldownMinutes` | `10` | 0–1440 | Global minimum interval between two extrapolations |
+| `crossSessionTrend` ~ | `true` | bool | **no-op since v0.5.0** (trend removed; kept for old configs) |
+| `trendWindowHours` ~ | `24` | 1–168 | **no-op** |
+| `trendEscalateAt` ~ | `3` | 2–20 | **no-op** |
+| `pushChannel` ~ | `none` | `none`\|`wechat` | **no-op** (push removed; `wechat` pushes nothing) |
+| `pushMinLevel` ~ | `hard` | `warn`\|`hard` | **no-op** |
+| `pushCooldownMinutes` ~ | `10` | 0–1440 | **no-op** |
 | `handoverOnWarn` | `true` | bool | Auto-draft the handoff block once `warnRatio` is crossed |
 | `handoverPath` | `HANDOVER.md` | string | Relative to the **session working directory**, or an absolute path |
 | `handoverRefreshPercent` | `5` | 1–25 | Refresh the draft every additional N percentage points of occupancy |
@@ -276,8 +277,7 @@ look at the same clues:
   hatch has to be injected **before the bundle loads** (`addInitScript` and friends): the language is
   frozen at module-evaluation time. It is absent by default ⇒ `auto` almost always follows the browser
   language.
-- **The host-side `locale` only affects the host's own surfaces** (handoff draft, host logs,
-  extrapolation push copy). Since v0.4.3 the browser half **no longer** reads the language from the host
+- **The host-side `locale` only affects the host's own surfaces** (handoff draft, host logs). Since v0.4.3 the browser half **no longer** reads the language from the host
   (that `GET /state` path is gone), so "set `locale: 'zh'` and both halves speak Chinese" **no longer
   holds** — forcing the browser side is only possible through the **pre-load** hatch above.
 - **Settings-page field descriptions** are always written as `English / 中文` in one line: the DSH config
@@ -301,10 +301,9 @@ look at the same clues:
   "plugin": "context-guard",
   "at": 1790000000000,
   "config": { /* the table above; handoverPath returns a relative/file name only, never an absolute path */ },
-  "trend": { /* cross-session trend summary; undefined when crossSessionTrend=false */ },
   "recent": [ { "sessionId": "…", "level": "warn|hard", "ratioPercent": 52, "title": "…", "body": "…" } ],
-  "push": { "channel": "none", "minLevel": "hard", "cooldownMinutes": 10,
-            "lastAt": 0, "lastResult": null, "sent": 0, "failed": 0, "skipped": 0, "history": [] },
+  "ledger": { "written": 1, "failed": 0, "unchanged": 0,
+              "last": { "at": 1790000000000, "status": "appended", "row": 1 } },
   "handover": { "enabled": true, "path": "HANDOVER.md", "refreshPercent": 5,
                 "written": 1, "failed": 0, "skipped": 0,
                 "last": { "status": "appended|replaced|error|skipped", "path": "HANDOVER.md", "bytes": 1234, "error": null },
@@ -383,8 +382,8 @@ Three invariants: **idempotent by `compactionId`** (a repeated delivery writes o
 
 - **The state route has no plugin-level authentication**: it is registered on the host webServer (the same access control as DSH Web). What the plugin does defend is: **relative/file names only** (never a local absolute path), `Cache-Control: no-store`, and no CORS headers. Do **not** expose DSH Web on `0.0.0.0`.
 - **The side effect of writing files** is the warning at the top; the write path comes from your own settings, never from remote input.
-- **The browser half's debug handle** `window.__DSH_CONTEXT_GUARD__` can read state and override levels (`override()`), but `Object.defineProperty` pins it so it **cannot be replaced wholesale**. It is available inside the page only and grants no privilege (that code already runs in your DSH Web page).
-- The plugin does not use the network, does not call any LLM, and does not send session content (unless you explicitly enable the WeChat extrapolation).
+- **The browser half's debug handle** `window.__DSH_CONTEXT_GUARD__` is **read-only** since v0.4.3: `store.dump()`, `viewOf()` and a `config` getter, **no `override()`**. `Object.defineProperty` pins it so it cannot be replaced wholesale. It is available inside the page only and grants no privilege (that code already runs in your DSH Web page).
+- The plugin does not use the network, does not call any LLM, and does not send session content (v0.5.0 removed the WeChat push entirely).
 
 ## Tests and local acceptance
 

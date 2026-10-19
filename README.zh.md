@@ -101,7 +101,7 @@ npm 包名：**`@2jumpsina/dsh-context-guard`** · [English](README.md)
 - **fail-closed**：没有分母就完全不判定，徽标显示 `ctx —` 而不是假装 0%。
 - **把一句话变成动作**：跨过 `warnRatio` 就地起草一块机器事实草稿（会话、水位、账本花费、本会话写过的文件、
   最近几轮的诉求 / 回应预览，外加「待补」空槽）写进会话工作目录 —— 零 LLM、零额外请求。
-- **外推推送是显式选择**（默认 `pushChannel: 'none'`）。提示插件没有资格在你没要求的情况下往你手机里发消息。
+- **本插件不联网**（v0.5.0 起删除了微信外推）；能力清单只剩 `fs-read` / `fs-write`。
 
 ### 这一节**不**声称什么
 
@@ -139,7 +139,7 @@ npm 包名：**`@2jumpsina/dsh-context-guard`** · [English](README.md)
 | **判定** | `lib/engine.mjs`（**只在宿主**） | 状态机是纯折叠（`init` + `apply(state, event)`）：档位 / 武装 / 轮次 / 冷却 / 迟滞只算一遍，`compaction/*` 折算进状态 |
 | **投影** | `lib/index.js`（宿主） | 把判定注册成 `wire` 投影 **`contextGuard`**：`{ level, armed, turn, cooldown, ratio }`，扁平 JSON，未变化时保持同一引用 |
 | **显示** | `lib/client-source.js`（浏览器） | `useProjection("contextGuard")` **只读**显示（徽标 + 一次性 banner）；没有阈值、没有状态机、不发额外请求 |
-| **调试镜像** | `GET /api/context-guard/state` | 只读镜像：宿主当前配置 / 趋势 / 推送 / 交接统计。浏览器半边**不再**从它抄阈值 |
+| **调试镜像** | `GET /api/context-guard/state` | 只读镜像：宿主当前配置 / 最近判定 / 压缩账计数 / 交接统计。浏览器半边**不再**从它抄阈值 |
 
 这样分工换来两件事：
 
@@ -228,12 +228,12 @@ New-Item -ItemType Junction `
 | `cooldownTurns` | `5` | 0–100 | 跨档后静默多少轮 |
 | `onResume` | `true` | bool | 进入一个已经很高的历史会话时也提示 |
 | `respectCompaction` | `true` | bool | 自动压缩正在压水位时不提示换会话 |
-| `crossSessionTrend` | `true` | bool | 统计窗口内几个会话撞过线，用于升级措辞 |
-| `trendWindowHours` | `24` | 1–168 | 趋势统计窗口（小时） |
-| `trendEscalateAt` | `3` | 2–20 | 窗口内撞 hard 的会话数达到此值则升级措辞 |
-| `pushChannel` | `none` | `none`\|`wechat` | 外推通道（默认关） |
-| `pushMinLevel` | `hard` | `warn`\|`hard` | 从哪一档开始外推 |
-| `pushCooldownMinutes` | `10` | 0–1440 | 两次外推的全局最小间隔 |
+| `crossSessionTrend` ~ | `true` | bool | **v0.5.0 起 no-op**（趋势已删，仅为兼容旧配置保留） |
+| `trendWindowHours` ~ | `24` | 1–168 | **no-op** |
+| `trendEscalateAt` ~ | `3` | 2–20 | **no-op** |
+| `pushChannel` ~ | `none` | `none`\|`wechat` | **no-op**（外推已删；填 wechat 也不会有任何推送） |
+| `pushMinLevel` ~ | `hard` | `warn`\|`hard` | **no-op** |
+| `pushCooldownMinutes` ~ | `10` | 0–1440 | **no-op** |
 | `handoverOnWarn` | `true` | bool | 跨过 `warnRatio` 时自动起草交接草稿 |
 | `handoverPath` | `HANDOVER.md` | string | 相对**会话工作目录**，或绝对路径 |
 | `handoverRefreshPercent` | `5` | 1–25 | 水位每再涨这么多点刷新一次草稿 |
@@ -256,7 +256,7 @@ New-Item -ItemType Junction `
 - **浏览器侧语言 = 加载前逃生阀 `config.locale` > `navigator.language` > `zh`。** 逃生阀必须**在 bundle
   加载之前**预置（`addInitScript` 之类）：语言在模块求值时就固化了。它默认不存在 ⇒ `auto` 几乎总是
   按浏览器语言推断。
-- **宿主侧的 `locale` 只影响宿主自己的面**（草稿块、宿主日志、外推推送的文案）。v0.4.3 起浏览器半边
+- **宿主侧的 `locale` 只影响宿主自己的面**（草稿块、宿主日志的文案）。v0.4.3 起浏览器半边
   **不再**从宿主读语言（那次 `GET /state` 已经拆掉），所以「写 `locale: 'zh'` 让两半边都说中文」
   这句话**不再成立** —— 想强制浏览器侧，只有上面那个**加载前**逃生阀。
 - **设置页的字段说明**永远是「English / 中文」合并式一行：DSH 的 config schema 是加载期静态元数据，
@@ -279,10 +279,9 @@ New-Item -ItemType Junction `
   "plugin": "context-guard",
   "at": 1790000000000,
   "config": { /* 上面那张表；handoverPath 只回相对名/文件名，绝不回绝对路径 */ },
-  "trend": { /* 跨会话趋势汇总，crossSessionTrend=false 时为 undefined */ },
   "recent": [ { "sessionId": "…", "level": "warn|hard", "ratioPercent": 52, "title": "…", "body": "…" } ],
-  "push": { "channel": "none", "minLevel": "hard", "cooldownMinutes": 10,
-            "lastAt": 0, "lastResult": null, "sent": 0, "failed": 0, "skipped": 0, "history": [] },
+  "ledger": { "written": 1, "failed": 0, "unchanged": 0,
+              "last": { "at": 1790000000000, "status": "appended", "row": 1 } },
   "handover": { "enabled": true, "path": "HANDOVER.md", "refreshPercent": 5,
                 "written": 1, "failed": 0, "skipped": 0,
                 "last": { "status": "appended|replaced|error|skipped", "path": "HANDOVER.md", "bytes": 1234, "error": null },
@@ -344,14 +343,16 @@ New-Item -ItemType Junction `
 - **成本随占用率上升**：按官方定价把「每次调用成本」对占用率拟合，高档位每次调用约是空会话的数倍，
   越晚收尾越贵；越早换会话省下的越多，代价只有一份交接（把它写短）。
 - **0.60 这个 hard 线是刻意早于平台自己的动作**：观测到的会话峰值从未超过约 80%（平台自身会在 ~80% 处
-  compaction）。把 hard 放在 80% 会与它抢同一时刻，而 `respectCompaction: true` 又会在被压缩后抑制提示
+  **静默压缩**）。把 hard 放在 80% 会与它抢同一时刻，而 `respectCompaction: true` 又会在被压缩后抑制提示
   ⇒ hard 档可能**永远不出声**。
+- **说真话（v0.6.0）**：硬档正文会直接写明「平台约 80% 会自行压缩，压掉的内容拿不回来」。
+  注意口径：**不是**「读数永久消失」—— 本插件的压缩账会抢存一行（没记下才是真没了）。
 - 两档的分工：`warnRatio` = 开始收尾/写交接；`hardRatio` = 换会话。
 
 ## 压缩账（v0.5.0）
 
-平台压缩之后，**压缩前的读数就永久查不到了**（平台自己吃掉了自己的证据）。插件在 `compaction/end` 时
-往工作目录的 `HANDOVER.md` 追加一行账（独立标记块，**不会被草稿刷新冲掉**）：
+平台压缩之后，**压缩前的读数会从平台投影里永久消失**（平台自己吃掉了自己的证据；插件只能抢存一份）。
+插件在 `compaction/end` 时往工作目录的 `HANDOVER.md` 追加一行账（独立标记块，**不会被草稿刷新冲掉**）：
 
 ```markdown
 <!-- dsh-context-guard:ledger:begin -->
