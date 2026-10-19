@@ -2,14 +2,16 @@
  * 对着**运行中的** web profile（默认 3080）只读地检查三件事：
  *   1. 客户端模块图里有没有目标包那一行；
  *   2. 若有，bundle 是否被服务、能否就地 materialize；
- *   3. **宿主状态路由**（`STATE_ROUTE`）在真机上答不答，以及浏览器半边有没有采纳宿主真源
- *      —— 这一条是 §14.5「client 读不到宿主设置」那件事的实时确认面。
+ *   3. **宿主状态路由**（`STATE_ROUTE`）在真机上答不答，以及浏览器半边是否暴露了
+ *      v0.4.3 的只读观测面（`store.dump()` / `viewOf(sessionId)`）——
+ *      它读的是宿主注册的 `contextGuard` 投影，客户端自己不再有状态机（所以也**不该**再有
+ *      `hostSync` / `hostConfig` 这类本地判定把守）。`STATE_ROUTE` 现在只是只读调试镜像。
  *
  * 只读、不改页面状态、不点任何按钮 —— 用来在**真实运行的会话**上做安装后确认。
  * token 从 `dsh-url.ps1` 取，只在进程内流转。
  *
- * ⚠️ 第 3 条只验「宿主半边 + 浏览器半边各自活着并对得上」；
- *    它**不**替 §10.3 的数值判定负责（那是策略单测的事）。
+ * ⚠️ 第 3 条只验「宿主半边活着 + 浏览器半边的观测面在」；它**不**替 §10.3 的数值判定负责
+ *    （那是策略单测的事，判定现在只住在 `lib/engine.mjs`）。
  *
  * 跑法：`node tools/check-live.mjs [port] [packageName]`
  */
@@ -88,14 +90,14 @@ const main = async () => {
     }, { u: graph.row.url, pkg: PKG });
   }
 
-  // —— 宿主状态路由 + 浏览器半边采纳宿主真源（全程只读：一个 GET + 读一个全局对象）
+  // —— 宿主状态路由（只读调试镜像）+ 浏览器半边的只读观测面（全程只读：一个 GET + 读一个全局对象）
   // ⚠️ 必须在 `browser.close()` **之前**跑：关掉浏览器再 evaluate 只会拿到
   //    「Target page, context or browser has been closed」（第一版就是这么写的）。
   await page
     .waitForFunction(
       () => {
         const g = window.__DSH_CONTEXT_GUARD__;
-        return Boolean(g) && typeof g.hostSync === 'function' && g.hostSync().status !== 'loading';
+        return Boolean(g) && typeof g.store?.dump === 'function' && typeof g.viewOf === 'function';
       },
       null,
       { timeout: 20_000 },
@@ -129,11 +131,29 @@ const main = async () => {
     } catch (error) {
       routeProbe = { error: String((error && error.message) || error) };
     }
+    // v0.4.3 的观测面：`store.dump()` 记录宿主投影说了什么；`viewOf(sessionId)` 是同一个把手的单会话版。
+    let dump = null;
+    try {
+      dump = typeof g?.store?.dump === 'function' ? g.store.dump() : null;
+    } catch (error) {
+      dump = { error: String((error && error.message) || error) };
+    }
+    const sessions = dump && typeof dump === 'object' ? Object.keys(dump) : [];
     return {
       route: routeProbe,
-      hostSync: typeof g?.hostSync === 'function' ? g.hostSync() : null,
-      hostConfig: typeof g?.hostConfig === 'function' ? g.hostConfig() : null,
-      effective: g?.config ?? null,
+      surface: {
+        hasDump: typeof g?.store?.dump === 'function',
+        hasViewOf: typeof g?.viewOf === 'function',
+        configSource: typeof g?.store?.config === 'function' ? g.store.config()?.source ?? null : null,
+        locale: typeof g?.store?.locale === 'function' ? g.store.locale() : null,
+        sessions: sessions.length,
+        levels: sessions.slice(0, 4).map((sid) => dump[sid]?.level ?? null),
+        viewOfFirst: sessions.length > 0 && typeof g?.viewOf === 'function' ? g.viewOf(sessions[0]) : null,
+        // 旧一代的把守：存在 ⇒ 那个 profile 里跑的还是**带客户端状态机**的旧 bundle。
+        legacy: ['hostSync', 'hostSyncReady', 'hostConfig', 'setConfig', 'settleTurn'].filter(
+          (key) => typeof g?.[key] !== 'undefined',
+        ),
+      },
     };
   }, STATE_ROUTE);
   await browser.close();
@@ -145,8 +165,14 @@ const main = async () => {
   if (bundle?.parseError) console.log(`  ⛔ 解析失败: ${bundle.parseError}`);
   if (bundle?.factoryError) console.log(`  ⛔ factory 失败: ${bundle.factoryError}`);
   if (errors.length) console.log(`页面错误: ${JSON.stringify(errors.slice(0, 4))}`);
-  console.log(`宿主状态路由 ${STATE_ROUTE}：HTTP ${link?.route?.status ?? 'ERR'}${link?.route?.error ? ` (${link.route.error})` : ''}${link?.route?.plugin ? ` plugin=${link.route.plugin} warn=${link.route.warnRatio} 外推=${link.route.push}` : ''}`);
-  console.log(`浏览器半边同步：${link?.hostSync?.status ?? 'no-handle'}${link?.hostSync?.error ? ` (${link.hostSync.error})` : ''} keys=${link?.hostSync?.keys ?? '-'} 生效 warn=${link?.effective?.warnRatio ?? '-'} hard=${link?.effective?.hardRatio ?? '-'}`);
+  console.log(`宿主状态路由 ${STATE_ROUTE}（只读调试镜像）：HTTP ${link?.route?.status ?? 'ERR'}${link?.route?.error ? ` (${link.route.error})` : ''}${link?.route?.plugin ? ` plugin=${link.route.plugin} warn=${link.route.warnRatio} 外推=${link.route.push}` : ''}`);
+  console.log(
+    `浏览器半边观测面：dump=${link?.surface?.hasDump ? 'YES' : 'NO'} viewOf=${link?.surface?.hasViewOf ? 'YES' : 'NO'} 投影=config.${link?.surface?.configSource ?? '?'} locale=${link?.surface?.locale ?? '-'} 会话=${link?.surface?.sessions ?? '-'} 档位=[${(link?.surface?.levels ?? []).join(',')}]`,
+  );
+  if ((link?.surface?.legacy ?? []).length > 0) {
+    console.log(`⛔ 这一页里还有旧一代把守：${link.surface.legacy.join(', ')} ⇒ 跑的不是 v0.4.3 的 bundle（客户端状态机还在）`);
+  }
+  if (link?.surface?.viewOfFirst) console.log(`  viewOf(首个会话): ${JSON.stringify(link.surface.viewOfFirst)}`);
   if (link?.route?.handover) {
     const h = link.route.handover;
     console.log(
@@ -157,9 +183,15 @@ const main = async () => {
   }
 
   const routeOk = link?.route?.status === 200 && link?.route?.plugin === 'context-guard';
-  const syncOk = link?.hostSync?.status === 'ok' && link?.hostConfig && typeof link.hostConfig.warnRatio === 'number';
+  // 浏览器半边「活着」的定义（v0.4.3）：只读观测面在，且**没有**旧一代的本地判定把守。
+  const surface = link?.surface ?? null;
+  const surfaceOk =
+    surface?.hasDump === true &&
+    surface?.hasViewOf === true &&
+    surface?.configSource === 'projection' &&
+    (surface?.legacy ?? ['legacy-present']).length === 0;
   if (!routeOk) console.log('⛔ 宿主状态路由没在答：宿主半边多半还是**改代码之前**的那一代（存盘不会重载已装载的模块，需要重启 daemon 或触发一次 profile 重载）');
-  if (routeOk && !syncOk) console.log('⛔ 路由在答，但浏览器半边没采纳（看 hostSync 的状态与错误）');
+  if (routeOk && !surfaceOk) console.log('⛔ 路由在答，但浏览器半边没给出 v0.4.3 的只读观测面（见上：dump/viewOf/config.source/legacy）');
 
   const ok =
     graph?.found === true &&
@@ -167,8 +199,8 @@ const main = async () => {
     !bundle?.parseError &&
     !bundle?.factoryError &&
     routeOk &&
-    syncOk;
-  console.log(ok ? 'PASS: 实时运行时已装载并服务该插件的浏览器半边，且宿主真源链路通' : 'FAIL: 见上');
+    surfaceOk;
+  console.log(ok ? 'PASS: 实时运行时已装载并服务该插件的浏览器半边，且宿主投影观测面可用（/state 仅只读镜像）' : 'FAIL: 见上');
   process.exit(ok ? 0 : 1);
 };
 

@@ -6,9 +6,11 @@
  *   → bundle 在浏览器里 materialize 成功（没有 require 落空、没有语法错误）
  *   → `ctx.slots` 真的把徽标 / banner 渲染进了会话头与 composer 上方。
  *
- * 顺带做一次**可控的压力注入**：`window.__DSH_CONTEXT_GUARD__` 把 warn 压到 0.01，
- * 于是哪怕刚开页面、上下文几乎是空的，也应该出现 warn 徽标与一次性 banner ——
- * 这同时验证了「逃生阀真的能改档」和「banner 真能出现」。
+ * ⚠️ **v0.4.3 起这里不能再用逃生阀注入压力**：档位（none/warn/hard）由宿主算一次并注册成
+ * `wire` 投影 `contextGuard`，浏览器半边只是**读**（`useProjection("contextGuard")`），
+ * 预载的 `window.__DSH_CONTEXT_GUARD__.config` 现在只剩 `locale` 一项。
+ * 于是徽标/投影观测面照样能验，而 banner 只有在**宿主真的判到 warn/hard** 时才可实判
+ * （宿主没判到就记一条 note，不当红灯 —— 客户端已经不能自造档位了）。
  *
  * 跑法：`node tools/verify-client.mjs <port> --log=<探针 stdout 日志> [--screenshot]`
  * 退出码即结论；完整证据落 `tools/out/client-verify.json`（不含 token）。
@@ -22,6 +24,24 @@ import { STATE_ROUTE, defaultConfig } from '../lib/policy.mjs';
 
 /** 出厂默认 warnRatio：断言「探针配的不是出厂默认」时**不写死数字**，默认值调整后不会静默失效。 */
 const FACTORY_WARN = defaultConfig().warnRatio;
+
+/**
+ * `store.dump()` 的形状契约（v0.4.3 的只读观测面）：每个会话一条
+ * `{ level, armed, turn, cooldown, ratio }` —— 就是宿主 `contextGuard` 投影的复制品，
+ * 客户端不做加工。多出别的键 ⇒ 客户端又在给自己攒判定状态，这条就该红。
+ */
+const PROJECTION_KEYS = ['level', 'armed', 'turn', 'cooldown', 'ratio'];
+const isHostProjectionDump = (dump) =>
+  Boolean(dump) &&
+  typeof dump === 'object' &&
+  Object.values(dump).every(
+    (view) =>
+      Boolean(view) &&
+      typeof view === 'object' &&
+      ['none', 'warn', 'hard'].includes(view.level) &&
+      typeof view.armed === 'boolean' &&
+      Object.keys(view).every((key) => PROJECTION_KEYS.includes(key)),
+  );
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = join(HERE, 'out');
@@ -98,9 +118,10 @@ const main = async () => {
     if (msg.type() === 'error') pageErrors.push(`console: ${text}`);
   });
 
-  // 逃生阀必须在 bundle materialize 之前设好：store 在 factory 里就固化了 CONFIG。
+  // 逃生阀必须在 bundle materialize 之前设好：locale 在 factory 里就固化了。
+  // v0.4.3 起这层**只承载语言**：客户端不再读阈值，注 warn/hard 已经不会有任何效果。
   await page.addInitScript(() => {
-    window.__DSH_CONTEXT_GUARD__ = { config: { warnRatio: 0.01, hardRatio: 0.02, cooldownTurns: 0 } };
+    window.__DSH_CONTEXT_GUARD__ = { config: { locale: 'zh' } };
   });
 
   const url = `http://127.0.0.1:${PORT}/?token=${encodeURIComponent(tokenFor(PORT))}`;
@@ -244,15 +265,33 @@ const main = async () => {
   const mountedCount = Array.isArray(debug?.calls) ? debug.calls.filter((c) => c.mounted).length : 0;
   check('两个槽位都真的挂上了（inject 回调跑过）', mountedCount === 2, JSON.stringify(debug?.calls));
 
-  // 3b-2. 宿主真源链路：**client 半边真的从宿主状态路由读到了设置**（§14.5 的第一件未做完项）。
+  // 3b-2. 宿主真源链路（v0.4.3）：宿主**只算一次**并注册成 `wire` 投影 `contextGuard`，
+  // 浏览器半边用 `useProjection("contextGuard")` **只读**它；`STATE_ROUTE` 降级成只读调试镜像
+  // （浏览器半边不再从它 fetch 阈值）。
   //
-  // 这条链路只能在真机上证：host 半边注册路由 → 浏览器 same-origin fetch → store 采纳宿主阈值。
-  // 断言分两半：① 路由本身在这个实例上真的在答；② 页面里的插件状态说它采纳了宿主值。
-  // 失败不许让整个脚本红：宿主路由缺席时插件应**退回内置默认值继续工作**（fail-soft），
-  // 所以「读到」是验收项，「读不到」是要单独报出来的**降级**项。
+  // 这条链路只能在真机上证：host 半边注册路由 → same-origin GET 拿到宿主当前配置；
+  // 浏览器半边把宿主投影片刻进 `store.dump()` / `viewOf(sessionId)` 这个只读把手。
+  // 失败不许让整个脚本红：宿主路由缺席是插件该 fail-soft 的场景，所以「路由不在答」单独报出来。
   const hostState = await page.evaluate(async (route) => {
     const g = window.__DSH_CONTEXT_GUARD__;
-    const sync = typeof g?.hostSync === 'function' ? g.hostSync() : null;
+    // 只读观测面：dump() 是**宿主说了什么**的记录，不是客户端算了什么。
+    const surface = () => {
+      try {
+        return {
+          dump: typeof g?.store?.dump === 'function' ? g.store.dump() : null,
+          viewOf: typeof g?.viewOf === 'function' ? g.viewOf() : null,
+          locale: typeof g?.store?.locale === 'function' ? g.store.locale() : null,
+          config: typeof g?.store?.config === 'function' ? g.store.config() : null,
+          navigatorLanguage: navigator.language,
+          // v0.4.3 之前那把本地状态机的把守：全部应当**缺席**（存在 ⇒ 客户端还自带一套判定）。
+          legacy: ['hostSync', 'hostSyncReady', 'hostConfig', 'setConfig', 'settleTurn'].filter(
+            (key) => typeof g?.[key] !== 'undefined',
+          ),
+        };
+      } catch (error) {
+        return { error: String((error && error.message) || error) };
+      }
+    };
     let routeProbe = null;
     try {
       const res = await fetch(route, { cache: 'no-store' });
@@ -267,21 +306,13 @@ const main = async () => {
     } catch (error) {
       routeProbe = { error: String((error && error.message) || error) };
     }
-    // 等一次已发起的同步落地（apply 里**先渲染后到货**，所以这里允许等）
-    try {
-      if (g?.hostSyncReady) await g.hostSyncReady;
-    } catch (error) {
-      /* 同步自己永不 reject，这里只是防御 */
+    // 投影走 wire 通道，到货有先后（徽标首帧之后才有第一条）⇒ 给观测面一点时间，别把它当成缺席。
+    for (let attempt = 0; attempt < 24; attempt += 1) {
+      const snapshot = surface();
+      if (snapshot?.dump && Object.keys(snapshot.dump).length > 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 500));
     }
-    const after = typeof g?.hostSync === 'function' ? g.hostSync() : null;
-    return {
-      route: routeProbe,
-      syncBefore: sync,
-      syncAfter: after,
-      hostConfig: typeof g?.hostConfig === 'function' ? g.hostConfig() : null,
-      effective: g?.config ?? null,
-      hostSync: window.__DSH_CONTEXT_GUARD_HOSTSYNC__ ?? null,
-    };
+    return { route: routeProbe, surface: surface() };
   }, STATE_ROUTE);
   evidence['hostConfigLink'] = hostState;
 
@@ -292,51 +323,87 @@ const main = async () => {
     JSON.stringify(hostState?.route).slice(0, 300),
   );
   // ⚠️ 前置条件而非凑数断言：探针 profile 若配的就是出厂默认，
-  //    「采纳了宿主设置」与「退回内置默认值」在数值上无法区分 ⇒ 这条必须红。
+  //    「路由回的是宿主当前配置」与「回的是出厂默认」在数值上无法区分 ⇒ 这条必须红。
   check(
-    '探针 profile 配的是**非默认**阈值（否则「采纳宿主」不可证伪）',
+    '探针 profile 配的是**非默认**阈值（否则「路由回宿主真源」不可证伪）',
     Number.isFinite(hostWarn) && Math.abs(hostWarn - FACTORY_WARN) > 1e-9,
     `host warnRatio=${hostState?.route?.warnRatio}（探针 profile 的 cordis.patch.yml 应配 0.33/0.44；出厂默认 ${FACTORY_WARN}）`,
   );
+  const surface = hostState?.surface;
+  // v0.4.3 的结构性事实：客户端没有能改判定的入口了 —— 这是 bundle 里没有状态机的**运行时**证据
+  // （静态那一半在 test/client-sync.test.mjs 的禁用标识符表里）。
   check(
-    'client 半边采纳了宿主真源阈值（hostConfig === 路由值）',
-    hostState?.syncAfter?.status === 'ok' &&
-      hostState?.hostConfig &&
-      Math.abs(Number(hostState.hostConfig.warnRatio) - hostWarn) < 1e-9 &&
-      Number(hostState?.syncAfter?.keys) >= 10,
-    JSON.stringify({ sync: hostState?.syncAfter, hostConfig: hostState?.hostConfig }).slice(0, 400),
+    '客户端只剩只读观测面（无 hostSync / hostSyncReady / hostConfig / setConfig / settleTurn）',
+    Array.isArray(surface?.legacy) && surface.legacy.length === 0 && typeof surface?.dump === 'object',
+    JSON.stringify({ legacy: surface?.legacy, dumpType: typeof surface?.dump }).slice(0, 300),
   );
-  // ⚠️ 本脚本用 addInitScript 把 warn 压到 0.01（逃生阀），而逃生阀**优先级高于宿主真源**：
-  //    所以「生效档位」在这里应等于逃生阀值、而不是宿主值。这条同时证明了分层的顺序没写反。
   check(
-    '逃生阀优先级高于宿主真源（逃生阀 0.01 仍然生效）',
-    Math.abs(Number(hostState?.effective?.warnRatio) - 0.01) < 1e-9,
-    `effective.warnRatio=${hostState?.effective?.warnRatio}`,
+    '客户端不再持有自己的阈值（store.config() 只有 source=projection 与 locale）',
+    surface?.config?.source === 'projection' && !('warnRatio' in (surface.config ?? {})),
+    JSON.stringify(surface?.config).slice(0, 200),
+  );
+  const dumpedSessions = Object.keys(surface?.dump ?? {});
+  const observedLevels = Object.values(surface?.dump ?? {}).map((view) => view?.level);
+  const crossedLevel = observedLevels.some((level) => level === 'warn' || level === 'hard');
+  if (dumpedSessions.length === 0) {
+    notes.push('store.dump() 还是空的（这一页没有活跃会话读到 contextGuard 投影）⇒「观测面形状」未实判');
+  } else {
+    check(
+      '观测面记录的是宿主投影（每条只有 level/armed/turn/cooldown/ratio）',
+      isHostProjectionDump(surface.dump),
+      JSON.stringify(surface.dump).slice(0, 400),
+    );
+    check(
+      'viewOf(sessionId) 与 store.dump() 指向同一份宿主投影',
+      JSON.stringify(surface.viewOf) === JSON.stringify(surface.dump),
+      JSON.stringify({ viewOf: surface.viewOf, dump: surface.dump }).slice(0, 300),
+    );
+  }
+  // 逃生阀（v0.4.3 起只剩语言一项）：预载的 `config.locale` 压过 `navigator.language`。
+  // ⚠️ 刻意不再断言「阈值也读逃生阀」—— 那条路已经随客户端状态机一起拆掉了。
+  check(
+    '语言逃生阀优先级高于 navigator.language（预载 locale=zh 生效）',
+    surface?.locale === 'zh',
+    `store.locale()=${surface?.locale}，navigator.language=${surface?.navigatorLanguage}`,
   );
 
-  // 3b-3. **决定性证据**：另开一个*没有逃生阀*的页面（Playwright 的 newPage 是独立 context），
-  //       让宿主真源自己决定档位。宿主配的是 0.33，所以「生效档位 = 0.33」只可能来自宿主设置 ——
-  //       这条才真正证伪了「其实一直在用内置默认值」。
+  // 3b-3. **无反例页面**：另开一个*没有逃生阀*的页面（Playwright 的 newPage 是独立 context）。
+  //       v0.4.3 起浏览器半边不持有阈值 ⇒「生效档位 = 宿主 0.33」在客户端侧**不可读**了
+  //       （这正是它消失的原因），所以这条改成此刻仍可证伪的结构断言：
+  //       没有逃生阀时，客户端照样只剩「只读宿主投影」这一条路，没有本地判定入口、也没有本地阈值。
   let freshLink = null;
   try {
     const fresh = await browser.newPage();
     await fresh.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 });
     await fresh
-      .waitForFunction(() => Boolean(window.__DSH_CONTEXT_GUARD__) && typeof window.__DSH_CONTEXT_GUARD__.hostSync === 'function', null, { timeout: 45_000 })
+      .waitForFunction(
+        () => Boolean(window.__DSH_CONTEXT_GUARD__) && typeof window.__DSH_CONTEXT_GUARD__.store?.dump === 'function',
+        null,
+        { timeout: 45_000 },
+      )
       .catch(() => {});
-    await fresh.evaluate(async () => {
-      try {
-        await window.__DSH_CONTEXT_GUARD__?.hostSyncReady;
-      } catch (error) {
-        /* 同步永不 reject，这里只是防御 */
-      }
-    });
-    freshLink = await fresh.evaluate(() => {
+    freshLink = await fresh.evaluate(async () => {
       const g = window.__DSH_CONTEXT_GUARD__;
+      // 等第一条宿主投影片刻（没有会话时可能一直为空 —— 那就照实报空）。
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        const dump = typeof g?.store?.dump === 'function' ? g.store.dump() : null;
+        if (dump && Object.keys(dump).length > 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
       return {
-        sync: typeof g?.hostSync === 'function' ? g.hostSync() : null,
-        effective: g?.config ?? null,
+        // 宿主投影的复制品：`viewOf(sessionId)` 给某会话最近一条，`viewOf()` 给全部。
+        projection: typeof g?.viewOf === 'function' ? g.viewOf() : null,
+        locale: typeof g?.store?.locale === 'function' ? g.store.locale() : null,
+        config: typeof g?.store?.config === 'function' ? g.store.config() : null,
+        navigatorLanguage: navigator.language,
         hasInitValve: Boolean(window.__DSH_CONTEXT_GUARD_PRE_VALVE__),
+        localThresholds: Object.prototype.hasOwnProperty.call(
+          typeof g?.store?.config === 'function' ? g.store.config() : {},
+          'warnRatio',
+        ),
+        legacy: ['hostSync', 'hostSyncReady', 'hostConfig', 'setConfig', 'settleTurn'].filter(
+          (key) => typeof g?.[key] !== 'undefined',
+        ),
       };
     });
     await fresh.close();
@@ -345,10 +412,12 @@ const main = async () => {
   }
   evidence['freshPage'] = freshLink;
   check(
-    `无反例页面：宿主真源自己决定档位（= 宿主 ${hostWarn}，而不是出厂 ${FACTORY_WARN}）`,
-    Math.abs(Number(freshLink?.effective?.warnRatio) - hostWarn) < 1e-9 &&
-      Math.abs(Number(freshLink?.effective?.warnRatio) - FACTORY_WARN) > 1e-9,
-    JSON.stringify(freshLink).slice(0, 300),
+    '无反例页面：没有逃生阀时客户端依然只读宿主投影（无本地阈值、无本地判定入口）',
+    freshLink?.config?.source === 'projection' &&
+      freshLink?.localThresholds === false &&
+      Array.isArray(freshLink?.legacy) &&
+      freshLink.legacy.length === 0,
+    JSON.stringify(freshLink).slice(0, 400),
   );
 
   // 3c. 就地在同一个席位（conversation.input.dock）再注册一个**零依赖**的标记组件。
@@ -418,14 +487,20 @@ const main = async () => {
     check('会话头出现了 context-guard 徽标', true, JSON.stringify(badge));
     check('徽标真的可见（display/尺寸都正常）', badge.visible === true, JSON.stringify(badge));
     check('徽标文字形如 ctx N%', /ctx\s+\d+%/.test(badge.text), badge.text);
-    check('徽标 tooltip 带阈值与动作', /warn/.test(badge.title ?? '') && /hard/.test(badge.title ?? ''), String(badge.title).slice(0, 160));
+    // v0.4.3 的 tooltip 不再列「warn x% · hard y%」（阈值不在客户端了）⇒ 改断言它说清**来源**：
+    // 收到投影时标 `contextGuard`；每会话还会带上宿主的轮次/冷却。
+    check(
+      '徽标 tooltip 说清阈值来源（宿主判定投影 contextGuard）',
+      /contextGuard/.test(badge.title ?? ''),
+      String(badge.title).slice(0, 160),
+    );
   } else if (headerBlank) {
     notes.push('会话头处于空态 headerBlank（没有活跃会话），官方实现就不渲染 utilities 槽位 ⇒ 徽标这一条**未实判**');
   } else {
     check('会话头出现了 context-guard 徽标', false, '会话头已是非空态，但槽位里没有徽标节点');
   }
 
-  // 5. banner（warn 压到 1% 后，任何非零占用都该跨档）
+  // 5. banner（只在**宿主**判到 warn/hard 的页面上可实判；v0.4.3 起客户端已不能自造档位）
   // ⚠️ 文案断言按 **locale 分别**写：§19.6 之后 client 半边会按 `navigator.language` 说英文，
   //    中文系统上仍应是「知道了」；写死一种语言会把双语功能变成验收红灯。
   const banner = await page.evaluate(() => {
@@ -463,8 +538,14 @@ const main = async () => {
     check('banner 带「知道了 / Got it」按钮', banner.hasKnowIt === true, banner.text);
   } else if (headerBlank) {
     notes.push('没有活跃会话 ⇒ 还没有 contextPressure 投影，banner 这一条**未实判**');
+  } else if (!crossedLevel) {
+    // v0.4.3：档位由宿主判定，本脚本已经没有能把客户端压到 warn/hard 的注入点 ⇒
+    // 宿主没判到档位时，banner 缺失是**预期的**，不是红灯（否则这条会永远红）。
+    notes.push(
+      `宿主这一页还没判到 warn/hard（观测到的档位：${JSON.stringify(observedLevels)}）⇒ banner 需要宿主真压才可实判，本条未实判`,
+    );
   } else {
-    check('跨越档位后出现了 banner', false, '有会话但 banner 没出现 —— 检查警告档阈值与投影是否有值');
+    check('跨越档位后出现了 banner', false, '宿主已判到 warn/hard，但 banner 没出现 —— 检查 banner 槽位与一次性 key');
   }
 
   // 7. 页面上不该有来自本插件的未捕获错误

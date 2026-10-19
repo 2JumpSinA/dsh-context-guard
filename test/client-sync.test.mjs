@@ -177,7 +177,7 @@ function undefinedFreeIdentifiers(bundle) {
   const known = new Set([
     'Object', 'Array', 'Map', 'Set', 'Math', 'JSON', 'Number', 'String', 'Boolean', 'Date', 'Error', 'TypeError',
     'ReferenceError', 'Promise', 'RegExp', 'isFinite', 'parseInt', 'queueMicrotask', 'setTimeout', 'clearTimeout',
-    'fetch', // 浏览器全局：client 半边读宿主状态路由用的就是它（§14.5「宿主机设置接到 client」）
+    'fetch', // 浏览器全局：手动起草按钮 `POST DRAFT_ROUTE`（v0.3.5）；v0.4.3 起不再用它读 /state 阈值
     'encodeURIComponent', // 浏览器全局：手动起草按钮把 sessionId 拼进 DRAFT_ROUTE 的 query（v0.3.5）
     'require', 'rgba', // CSS 颜色函数会以字符串形式出现在内联样式里
     'constructor', 'context', // 类构造器名与策略里的 `(context = defaultConfig())` 默认参数
@@ -211,6 +211,37 @@ test('内联后的策略函数名与 client 半边调用名一致', () => {
   const bundle = read('lib/client.js');
   assert.match(bundle, /function guardDescribe\(/, '策略的措辞函数应被改名为 guardDescribe');
   assert.doesNotMatch(bundle, /describeSignal/, 'client 半边不许再引用 describeSignal 这个只存在于 host import 别名里的名字');
+});
+
+test('bundle 里没有「客户端判定」的残骸（v0.4.3 的结构性护栏）', () => {
+  const bundle = read('lib/client.js');
+  const code = codeOnly(bundle);
+  /**
+   * 这是 P1-5 那一整类漂移的**一次性收口**：判定状态机已搬进 `lib/engine.mjs`
+   * （宿主专属，不进 bundle）。以下四样一旦在 bundle 里重新出现，就说明有人又把判定
+   * 塞回浏览器半边的路上了：
+   *   · `reduce` / `nextTurn` / `initialState` —— 状态机本身；
+   *   · `settleTurn` —— 「点按钮就推进一轮」那个入口；
+   *   · `hostSync` / `syncFromHost` —— 抄一份宿主阈值再自己判的第二条路。
+   * （`readOccupancy` / `describe` / `badgeText` 是**纯展示**助手，允许留下。）
+   */
+  for (const banned of ['reduce', 'nextTurn', 'initialState', 'settleTurn', 'hostSync', 'syncFromHost']) {
+    assert.doesNotMatch(
+      code,
+      new RegExp(`\\b${banned}\\b`),
+      `client bundle 里不许再出现 ${banned} —— 客户端不参与判定（见复审报告 §2 #1）`,
+    );
+  }
+});
+
+test('客户端不再读 /state 阈值路由（只留手动起草用 fetch）', () => {
+  const bundle = read('lib/client.js');
+  const code = codeOnly(bundle);
+  // `STATE_ROUTE` 这个常量可能还因为共享 policy 被内联而存在，但它**不许**被当成 fetch 的地址。
+  assert.doesNotMatch(code, /fetch\s*\(\s*STATE_ROUTE/, 'client 半边不许再 fetch 状态路由');
+  assert.doesNotMatch(code, /STATE_ROUTE\s*[,)]/, 'STATE_ROUTE 不该再被客户端当参数用');
+  // 起草路由仍要走一次 POST（v0.3.5 的手动草稿），这条不能顺手删掉
+  assert.match(code, /fetch\s*\(\s*url/, '手动起草按钮仍然要 POST DRAFT_ROUTE');
 });
 
 test('注册 id 等于包名，且只 require 基线说明符', () => {

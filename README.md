@@ -121,8 +121,8 @@ paying**, at the only moment when the number can still change the decision.
 
 | Half | What it does |
 |---|---|
-| **host** (`lib/index.js`) | Subscribes to `ctx.sessionProjections.onChanged` and feeds `contextPressure` to the pure policy; settles each turn on `turn/end`; owns the settings; judges once immediately on `session/created` (new **or** restored from storage); folds `compaction/end` and `request/header` into the decision; registers `GET /api/context-guard/state`; extrapolates the verdict to WeChat when configured; and **drafts the handoff block** when a threshold is crossed |
-| **client** (`lib/client.js`, a hand-written single-file bundle) | Session-header **badge** (live occupancy; numbers only, never speaks) plus a **one-shot banner** on threshold crossing (ratio + next step + pointer to the handoff document); on boot it reads the host settings back from the state route (a three-layer merge of **built-in defaults < host truth < escape hatch**) |
+| **host** (`lib/index.js`) | Subscribes to `ctx.sessionProjections.onChanged` and feeds `contextPressure` to the pure policy; settles each turn on `turn/end`; owns the settings; judges once immediately on `session/created` (new **or** restored from storage); folds `compaction/end` and `request/header` into the decision; registers the verdict as the **`contextGuard` wire projection** for the browser half; registers `GET /api/context-guard/state` (a read-only debug mirror); extrapolates the verdict to WeChat when configured; and **drafts the handoff block** when a threshold is crossed |
+| **client** (`lib/client.js`, a hand-written single-file bundle) | Session-header **badge** (live occupancy; numbers only, never speaks) plus a **one-shot banner** on threshold crossing (ratio + next step + pointer to the handoff document); level/turn/cooldown come **only** from `useProjection("contextGuard")` — read-only, no local state machine, no thresholds, no extra requests (see the Architecture section below) |
 
 Behaviour notes:
 
@@ -136,6 +136,29 @@ Behaviour notes:
 - **Speaks once**: two levels + hysteresis (re-armed only after falling back below `warn − hysteresis`) + edge triggering + a cooldown of N turns.
 - **At a level crossing you get two choices**: `Write the handoff, I will copy it` (write one machine-facts draft right away and surface a copy-ready opening line) and `Got it` (just close, no side effect).
 - **fail-closed**: with no denominator (`contextWindow` absent) it does not judge at all, and the badge explicitly shows `ctx —` instead of pretending to be 0%.
+
+## Architecture (v0.4.3): the host judges, the browser only reads (one decision)
+
+One place decides, one place displays, and a single `wire` projection links them:
+
+| Layer | Where | Responsibility |
+|---|---|---|
+| **Decision** | `lib/engine.mjs` (**host only**) | The state machine is a pure fold (`init` + `apply(state, event)`): level / armed / turn / cooldown / hysteresis are computed once, and `compaction/*` folds into that state |
+| **Projection** | `lib/index.js` (host) | Registers the verdict as the **`contextGuard`** `wire` projection: `{ level, armed, turn, cooldown, ratio }` — flat JSON, same reference while unchanged |
+| **Display** | `lib/client-source.js` (browser) | `useProjection("contextGuard")`, **read-only** (badge + one-shot banner); no thresholds, no state machine, no extra requests |
+| **Debug mirror** | `GET /api/context-guard/state` | A read-only mirror: current host config / trend / push / handoff counters. The browser half **no longer** copies thresholds from it |
+
+Two things this buys:
+
+- **One decision.** The browser half used to carry its own state machine and copy the thresholds from
+  the state route on boot ⇒ two cooldowns, two hysteresis rules, and `settleTurn` wired to a banner
+  button (one click could advance the turn counter client-side). The decision now lives only in
+  `lib/engine.mjs` and is not even in the bundle — structurally: `test/client-sync.test.mjs` also
+  statically bans the `hostSync` / `setConfig` / `settleTurn` identifiers.
+- **It shows what it was told.** The debug surface `window.__DSH_CONTEXT_GUARD__.store.dump()` (all
+  sessions) and `viewOf(sessionId)` (one) records **what the host projection said**, not what the
+  client computed. When the projection is absent (older host / no token-meter), the badge still shows
+  occupancy but **no banner appears** — better to stay quiet than to reintroduce a second judge.
 
 ## Install
 
@@ -210,7 +233,7 @@ Editable on the settings page, all applied live; every `config` field is volatil
 | Field | Default | Range | Meaning |
 |---|---|---|---|
 | `enabled` | `true` | bool | Master switch |
-| `locale` | `auto` | `auto`\|`zh`\|`en` | Copy language; `auto` detects per half — see [Language](#language) |
+| `locale` | `auto` | `auto`\|`zh`\|`en` | Copy language; `auto` is resolved per half (the host reads the session's first input, the browser reads `navigator.language`, both fall back to Chinese). ⚠️ This field only affects the **host side** (handoff draft / host logs / push); the browser side is forced by the pre-load escape hatch only — see [Language](#language) |
 | `warnRatio` | `0.45` | 0.1–0.95 | Occupancy (`projectedTokens / contextWindow`) at which "time to wrap up" fires |
 | `hardRatio` | `0.60` | 0.1–1 | "Time to start a new session"; must be > `warnRatio` |
 | `hysteresisRatio` | `0.05` | 0–0.2 | Hysteresis: re-arm only after falling back below `warn − this value` |
@@ -235,15 +258,22 @@ Editable on the settings page, all applied live; every `config` field is volatil
 ## Language
 
 All user-visible copy is bilingual (Chinese + English): the banner, the handoff draft, host logs and
-the badge/banner UI text. Default is `auto`, and the two halves resolve it **separately** — they can see
-different clues, and the host side has no locale service to read at all:
+the badge/banner UI text. Default is `auto`, and the two halves resolve it **separately** — they do not
+look at the same clues:
 
 | Half | What `auto` looks at | Fallback |
 |---|---|---|
-| Browser (badge tooltip + banner) | `navigator.language`: `zh…` ⇒ Chinese, anything else ⇒ English | Chinese |
-| Host (handoff draft + logs) | whether that session's **first user input** contains Chinese characters (`titleInput`, read from the projection registry's host state via `stateOf`) | Chinese |
+| Browser (badge tooltip + banner) | the **pre-load** escape hatch `window.__DSH_CONTEXT_GUARD__.config.locale` > `navigator.language` (`zh…` ⇒ Chinese, anything else ⇒ English) | Chinese |
+| Host (handoff draft + logs + push) | whether that session's **first user input** contains Chinese characters (`titleInput`, read from the projection registry's host state via `stateOf`) | Chinese |
 
-- `locale: 'zh'` / `'en'` forces both halves and wins over the detection above.
+- **Browser-side language = pre-load escape hatch `config.locale` > `navigator.language` > `zh`.** The
+  hatch has to be injected **before the bundle loads** (`addInitScript` and friends): the language is
+  frozen at module-evaluation time. It is absent by default ⇒ `auto` almost always follows the browser
+  language.
+- **The host-side `locale` only affects the host's own surfaces** (handoff draft, host logs,
+  extrapolation push copy). Since v0.4.3 the browser half **no longer** reads the language from the host
+  (that `GET /state` path is gone), so "set `locale: 'zh'` and both halves speak Chinese" **no longer
+  holds** — forcing the browser side is only possible through the **pre-load** hatch above.
 - **Settings-page field descriptions** are always written as `English / 中文` in one line: the DSH config
   schema is static load-time metadata with no per-locale description mechanism, and the settings page
   has no idea which session you are looking at. (If DSH ever grows per-locale descriptions, those
@@ -257,7 +287,8 @@ different clues, and the host side has no locale service to read at all:
 
 ## Host state route
 
-`GET /api/context-guard/state` — the browser half reads the true thresholds from it, and it doubles as the debugging entry point.
+`GET /api/context-guard/state` — a **read-only debug mirror**: it shows the host's current decision settings and counters to `curl`, a troubleshooting session, or the acceptance scripts.
+⚠️ Since v0.4.3 the browser half **no longer** takes its data from here (level/cooldown come over the `contextGuard` projection — see Architecture). Breaking this route therefore cannot break the badge or the banner, but it does cost you one pair of eyes.
 
 ```jsonc
 {

@@ -110,8 +110,8 @@ npm 包名：**`@2jumpsina/dsh-context-guard`** · [English](README.md)
 
 | 半边 | 做什么 |
 |---|---|
-| **host**（`lib/index.js`） | 订阅 `ctx.sessionProjections.onChanged`，把 `contextPressure` 喂给纯策略；在 `turn/end` 结算一轮；持有设置；`session/created`（新建或从存储恢复）时立刻判一次；`compaction/end`、`request/header` 参与判定；注册 `GET /api/context-guard/state`；按设置把结论外推到微信；跨过阈值时**起草交接草稿** |
-| **client**（`lib/client.js`，手写单文件 bundle） | 会话头**徽标**（实时占用率，只显示数字、不出声）+ 跨档时**一次性 banner**（占比 + 下一步 + 指向交接文档）；启动时从状态路由读回宿主设置（**内置默认 < 宿主真源 < 逃生阀**三层合并） |
+| **host**（`lib/index.js`） | 订阅 `ctx.sessionProjections.onChanged`，把 `contextPressure` 喂给纯策略；在 `turn/end` 结算一轮；持有设置；`session/created`（新建或从存储恢复）时立刻判一次；`compaction/end`、`request/header` 参与判定；把判定注册成 `contextGuard` **wire 投影**给浏览器半边；注册 `GET /api/context-guard/state`（只读调试镜像）；按设置把结论外推到微信；跨过阈值时**起草交接草稿** |
+| **client**（`lib/client.js`，手写单文件 bundle） | 会话头**徽标**（实时占用率，只显示数字、不出声）+ 跨档时**一次性 banner**（占比 + 下一步 + 指向交接文档）；档位/轮次/冷却一律 `useProjection("contextGuard")` **只读**宿主投影 —— 没有本地状态机、不读阈值、不发额外请求（见下面「架构」一节） |
 
 行为要点：
 
@@ -123,6 +123,28 @@ npm 包名：**`@2jumpsina/dsh-context-guard`** · [English](README.md)
 - **只响一次**：双档 + 迟滞（回落到 `warn − hysteresis` 才重新武装）+ 边沿触发 + 冷却 N 轮。
 - **跨档时给你两个选择**：`写好交接，我复制`（宿主立刻写一次机器事实草稿，并把可复制的开场文本摆出来）与 `知道了`（纯关闭，没有附带动作）。
 - **fail-closed**：没有分母（`contextWindow` 缺席）就不判定，徽标显式显示 `ctx —`，**不假装 0%**。
+
+## 架构（v0.4.3）：宿主判，浏览器只读（一份判定）
+
+判定只有一处、显示只有一处，中间靠一条 `wire` 投影连着：
+
+| 层 | 在哪 | 负责什么 |
+|---|---|---|
+| **判定** | `lib/engine.mjs`（**只在宿主**） | 状态机是纯折叠（`init` + `apply(state, event)`）：档位 / 武装 / 轮次 / 冷却 / 迟滞只算一遍，`compaction/*` 折算进状态 |
+| **投影** | `lib/index.js`（宿主） | 把判定注册成 `wire` 投影 **`contextGuard`**：`{ level, armed, turn, cooldown, ratio }`，扁平 JSON，未变化时保持同一引用 |
+| **显示** | `lib/client-source.js`（浏览器） | `useProjection("contextGuard")` **只读**显示（徽标 + 一次性 banner）；没有阈值、没有状态机、不发额外请求 |
+| **调试镜像** | `GET /api/context-guard/state` | 只读镜像：宿主当前配置 / 趋势 / 推送 / 交接统计。浏览器半边**不再**从它抄阈值 |
+
+这样分工换来两件事：
+
+- **一套判定**。以前浏览器半边自带状态机，启动时再从状态路由抄一份阈值 ⇒ 两套冷却、两套迟滞，
+  `settleTurn` 还挂在 banner 按钮上（点一下就能在客户端推进轮次）。现在判定只住在 `lib/engine.mjs`，
+  连 bundle 里都没有它 —— 这是结构性的：`test/client-sync.test.mjs` 还会静态禁用
+  `hostSync` / `setConfig` / `settleTurn` 这些标识符。
+- **读到什么就显示什么**。排障面 `window.__DSH_CONTEXT_GUARD__.store.dump()`（全部会话）与
+  `viewOf(sessionId)`（单个会话）记录的是**宿主投影说了什么**，不是客户端算了什么；
+  投影缺席（旧宿主 / 没装 token-meter）时徽标仍显示占用率，但**不出 banner** ——
+  宁可少提示，也不退回本地自算一份。
 
 ## 安装
 
@@ -193,7 +215,7 @@ New-Item -ItemType Junction `
 | 字段 | 默认 | 范围 | 含义 |
 |---|---|---|---|
 | `enabled` | `true` | bool | 总开关 |
-| `locale` | `auto` | `auto`\|`zh`\|`en` | 文案语言；`auto` 由两半边各自推断（见「语言」一节） |
+| `locale` | `auto` | `auto`\|`zh`\|`en` | 文案语言；`auto` 由两半边各自推断（宿主看会话首条输入，浏览器看 `navigator.language`，均兜底中文）。⚠️ 这一项**只作用于宿主侧**（草稿块 / 宿主日志 / 推送），浏览器侧的强制项是加载前逃生阀，见「语言」一节 |
 | `warnRatio` | `0.45` | 0.1–0.95 | 「该收尾了」的占用率（`projectedTokens / contextWindow`） |
 | `hardRatio` | `0.60` | 0.1–1 | 「该换会话了」；必须 > `warnRatio` |
 | `hysteresisRatio` | `0.05` | 0–0.2 | 迟滞：回落到 `warn − 此值` 以下才重新武装 |
@@ -218,14 +240,19 @@ New-Item -ItemType Junction `
 ## 语言 / Language
 
 所有给人看的文案都是双语的（中文 + 英文）：banner、草稿块、宿主日志，以及徽标 / banner 的 UI 文字。
-默认 `auto`，而两半边是**各自解析**的 —— 它们能看到的线索本来就不同，何况宿主半边根本没有 locale 服务可读：
+默认 `auto`，两半边**各自解析** —— 它们能看到的线索本来就不一样：
 
 | 半边 | `auto` 看什么 | 兜底 |
 |---|---|---|
-| 浏览器（徽标 tooltip + banner） | `navigator.language`：以 `zh` 开头 ⇒ 中文，其余 ⇒ 英文 | 中文 |
-| 宿主（草稿块 + 日志） | 该会话**首条用户输入**里有没有汉字（`titleInput` —— 走注册表的宿主状态 `stateOf` 读，它没有 `wire`、`onChanged` 收不到） | 中文 |
+| 浏览器（徽标 tooltip + banner） | 加载前逃生阀 `window.__DSH_CONTEXT_GUARD__.config.locale` > `navigator.language`（以 `zh` 开头 ⇒ 中文，其余 ⇒ 英文） | 中文 |
+| 宿主（草稿块 + 日志 + 推送） | 该会话**首条用户输入**里有没有汉字（`titleInput` —— 走注册表的宿主状态 `stateOf` 读，它没有 `wire`、`onChanged` 收不到） | 中文 |
 
-- 写 `locale: 'zh'` / `'en'` 可强制两半边都说同一种语言，压过上面的推断。
+- **浏览器侧语言 = 加载前逃生阀 `config.locale` > `navigator.language` > `zh`。** 逃生阀必须**在 bundle
+  加载之前**预置（`addInitScript` 之类）：语言在模块求值时就固化了。它默认不存在 ⇒ `auto` 几乎总是
+  按浏览器语言推断。
+- **宿主侧的 `locale` 只影响宿主自己的面**（草稿块、宿主日志、外推推送的文案）。v0.4.3 起浏览器半边
+  **不再**从宿主读语言（那次 `GET /state` 已经拆掉），所以「写 `locale: 'zh'` 让两半边都说中文」
+  这句话**不再成立** —— 想强制浏览器侧，只有上面那个**加载前**逃生阀。
 - **设置页的字段说明**永远是「English / 中文」合并式一行：DSH 的 config schema 是加载期静态元数据，
   没有 per-locale 描述机制，设置页也无从知道你在看哪个会话。（将来 DSH 支持按 locale 描述，
   这些字符串就搬进文案表，这条注释随之删掉。）
@@ -237,7 +264,9 @@ New-Item -ItemType Junction `
 
 ## 宿主状态路由
 
-`GET /api/context-guard/state` —— 浏览器半边据此拿真源阈值，也是排障入口。
+`GET /api/context-guard/state` —— **只读调试镜像**：给 `curl`、排障和验收脚本看宿主当前的判定设置与统计。
+⚠️ v0.4.3 起浏览器半边**不再**从它取数据（档位/冷却走 `contextGuard` 投影，见「架构」一节），
+所以它坏掉不会影响徽标与 banner —— 但会让排障少一只眼。
 
 ```jsonc
 {

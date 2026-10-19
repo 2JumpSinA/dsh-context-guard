@@ -763,6 +763,60 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
   }
 }
 
+// —— 7. wire 投影（v0.4.3，复审报告 §2 建议 #1）
+//    真机契约：`sessionProjections.register({key, stateVersion, stateSchema, init, apply, wire})`。
+//    这里只造一个**只有 register** 的假服务，验证三件事：注册了、键与版本对、view 形状对。
+//    （`test/projection.test.mjs` 用更完整的假注册表覆盖「值变才变」与广播，这里守的是
+//     「真机接线在 selftest 的假 ctx 里也成立」，两条路互相独立。）
+{
+  const h = fakeCtx({ withProjections: true });
+  const regs = new Map();
+  h.services.set('sessionProjections', {
+    register(def) {
+      if (!Number.isSafeInteger(def.stateVersion) || def.stateVersion < 0) throw new Error('bad stateVersion');
+      regs.set(def.key, def);
+      return () => regs.delete(def.key);
+    },
+    onChanged() {
+      return () => {};
+    },
+    snapshot: () => ({ asOfSeq: 0, values: {} }),
+  });
+  let threw = null;
+  try {
+    apply(h.ctx, { enabled: true, handoverOnWarn: false });
+  } catch (error) {
+    threw = error;
+  }
+  check('有 register() 时 apply 不抛', threw === null, threw ? threw.message : '');
+
+  const def = regs.get('contextGuard');
+  check('注册了 contextGuard 投影', def !== undefined);
+  check('stateVersion 从 0 起', def?.stateVersion === 0, String(def?.stateVersion));
+  check(
+    'init/apply/stateSchema/wire 齐全',
+    Boolean(def) &&
+      typeof def.init === 'function' &&
+      typeof def.apply === 'function' &&
+      typeof def.stateSchema?.parse === 'function' &&
+      typeof def.wire?.view === 'function' &&
+      typeof def.wire?.viewSchema?.parse === 'function',
+  );
+  if (def) {
+    const state = def.stateSchema.parse(def.init({ id: 'proj-s1' }, 0));
+    check('init 只依赖会话头（id 来自 header）', state.id === 'proj-s1' && state.level === 'none', JSON.stringify(state));
+    const view = def.wire.viewSchema.parse(def.wire.view(state));
+    check(
+      'view 是 level/armed/turn/cooldown/ratio 五个扁平字段',
+      JSON.stringify(Object.keys(view).sort()) === JSON.stringify(['armed', 'cooldown', 'level', 'ratio', 'turn']),
+      JSON.stringify(view),
+    );
+    check('view 里不掺排障面（recent/history/trend）', !('recent' in view) && !('history' in view) && !('trend' in view));
+    check('同一个 state ⇒ 同一个 view 引用（注册表据此判定不广播）', def.wire.view(state) === def.wire.view(state));
+    check('state 没变 ⇒ apply 返回同一个引用', def.apply(state, { type: 'assistant/message' }) === state);
+  }
+}
+
 console.log(`通过 ${ok.length} 项`);
 if (fails.length > 0) {
   console.log(`失败 ${fails.length} 项：`);

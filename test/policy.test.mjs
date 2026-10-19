@@ -15,10 +15,6 @@ import assert from 'node:assert/strict';
 import {
   defaultConfig,
   readOccupancy,
-  initialState,
-  reduce,
-  nextTurn,
-  inCooldown,
   TrendTracker,
   describe as describeSignal,
   badgeText,
@@ -29,6 +25,9 @@ import {
   STATE_ROUTE,
   LEVEL_ORDER,
 } from '../lib/policy.mjs';
+// 判定状态机 v0.4.3 搬到 engine.mjs（policy.mjs 会被逐字内联进浏览器 bundle，
+// 状态机住在里面 ⇒ 客户端永远「有一套可用的判定逻辑」，那正是 P1-5 漂移的入口）。
+import { initialState, reduce, nextTurn, inCooldown, fold } from '../lib/engine.mjs';
 
 const read = (projected, window_) => readOccupancy({ projectedTokens: projected, contextWindow: window_ });
 const step = (state, reading, options = {}) => reduce(state, reading, { config: defaultConfig(), ...options });
