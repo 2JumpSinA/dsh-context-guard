@@ -51,7 +51,7 @@ self-reported) and the official DeepSeek pricing table:
 | Self-check (price table × `contextTimeline.cost`, against the ledger total) | ¥254.29 vs ¥252.29 ⇒ **0.8% deviation**; per-request rows cover 85.4% of the total |
 | Unit price by occupancy | **¥0.011/call** at 0–10% → **¥0.045/call** at 70–80% (**4.2×**) |
 | Where the historical spend sits | calls at **≥40%** occupancy: **37.4%** of spend · at **≥60%**: **20.0%** |
-| Session peaks | **75/75 sessions never exceed ~80%** (6 of them drop sharply at 79–80%) ⇒ the platform compacts around there |
+| Session peaks | Observed **75/75 sessions never exceed ~80%**; the real point comes from the formula (≈ **67.8%** on this machine's deepseek-flash) |
 | Interruption cost, if the line is drawn at 40% / 50% / 60% | **0.78 / 0.57 / 0.50** prompts per day |
 
 And one real session, from the very repository this plugin was built in: **584 calls, 274M tokens, ¥31.66 — of
@@ -87,11 +87,11 @@ paying**, at the only moment when the number can still change the decision.
 
 ### Why nothing else already catches it
 
-- **The platform compacts; it does not negotiate.** Every observed session peaked at or below ~80%, which is
-  exactly where DSH compacts on its own. Compaction is a safety net for the session, not a warning to you — by
-  the time it fires you have already paid for the whole climb. Since v0.6.0 the hard-tier banner says this
-  outright: the platform **silently compacts at ~80%**, and what it compresses away is gone — the only trace
-  is a ledger row if one was written (the wording deliberately does not claim "the reading is lost forever").
+- **The platform compacts; it does not negotiate.** The automatic point is `min(window × 0.8, window − reservedOutput − 65,536)`
+  (≈ **67.8%** on this machine's deepseek-flash), and it fires without asking. Compaction is a safety net for the session, not a warning to you — by
+  the time it fires you have already paid for the whole climb. Since v0.6.1 the hard-tier banner prints that point
+  explicitly; what it compresses away is gone — the only trace is a ledger row if one was written (the wording
+  deliberately does not claim "the reading is lost forever").
 - **The model cannot be the meter.** `projectedTokens` is computed by `dsh-token-meter` from the real request;
   the model cannot see how large its own prompt is, and a warning is only meaningful **after** a turn ends (that
   turn's prompt is already on the wire). Worse, any mechanism that makes the model "mind the context" has to
@@ -357,7 +357,13 @@ Two consequences worth stating plainly:
 
 - **Occupancy = `projectedTokens / contextWindow`** (the official definition: how large the **next** request's prompt is, output excluded). Always a ratio: switch models and the window switches with it.
 - **Cost rises with occupancy**: fitting per-call cost against occupancy using official pricing, a call in the high band costs several times one in an empty session; wrapping up later costs more, and starting a new session earlier saves more at the price of exactly one handoff (so keep it short).
-- **The 0.60 hard line deliberately precedes the platform's own move**: observed session peaks never exceed about 80% (the platform compacts around there). Putting hard at 80% would race it for the same moment, and `respectCompaction: true` suppresses the warning after a compaction ⇒ the hard band might **never speak at all**.
+- **The 0.60 hard line deliberately precedes the platform's own move**: the automatic compaction point is **not a fixed 80%** but
+  `min(window × 0.8, window − reservedOutput − 65,536)`. On this machine's deepseek-flash (1,000,000 window / 256,000 output reserve) that is
+  **67.8%** (678,464 tokens) — matching what the real machine does. Putting hard at that point would race it for the same moment, and
+  `respectCompaction: true` suppresses the warning after a compaction ⇒ the hard band might **never speak at all**.
+- **Speaking the truth (v0.6.1)**: the hard-tier body prints the threshold **computed on this machine with the same formula** (e.g. "about 67.8%");
+  when the window or the output reserve is unknown it prints **no number** and only says "the platform silently compacts".
+  The wording deliberately does not claim "the reading is lost forever" — the ledger keeps a row (if one was written).
 - Division of labour: `warnRatio` = start wrapping up / write the handoff; `hardRatio` = start a new session.
 
 ## Compaction ledger (v0.5.0)

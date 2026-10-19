@@ -158,14 +158,35 @@ test('composeHandoverBlock：没有工作时，标题明确写「未核」而不
   assert.match(block, /未核（无工作目录）/);
 });
 
-test('P3：hard 档正文写明平台约 80% 静默压缩，warn 档不搬这句话', () => {
-  const hard = describe({ level: 'hard', ratio: 0.8, projectedTokens: 800_000, contextWindow: 1_000_000 }, { lang: 'zh' });
-  const warn = describe({ level: 'warn', ratio: 0.45, projectedTokens: 450_000, contextWindow: 1_000_000 }, { lang: 'zh' });
-  assert.match(hard.body, /80%/);
-  assert.match(hard.body, /静默压缩|会自行压缩/);
+test('P3：hard 档正文写入「按 DSH 公式推算的自动压缩点」，未知时不许写数字', () => {
+  const hard = describe({ level: 'hard', ratio: 0.8, projectedTokens: 800_000, contextWindow: 1_000_000 }, { lang: 'zh', compactPercent: 67.8 });
+  assert.match(hard.body, /67\.8%/, '本机 deepseek-flash：678464/1000000');
+  assert.match(hard.body, /静默压缩/);
   assert.match(hard.body, /拿不回来/);
   assert.ok(!hard.body.includes('账本第'), '硬档正文不许用回执措辞（那是降级态的事）');
-  assert.ok(!warn.body.includes('80%'), '45% 档不许出现 80%，否则失去「还能继续干」的含义');
+  assert.ok(!hard.body.includes('自动压缩点约 80%'), '不再把 80% 写死成平台的压缩点');
+
+  const noPoint = describe({ level: 'hard', ratio: 0.8 }, { lang: 'zh' });
+  assert.ok(!noPoint.body.includes('自动压缩点'), '窗口/输出预留未知时不写数字');
+
+  const warn = describe({ level: 'warn', ratio: 0.45, projectedTokens: 450_000, contextWindow: 1_000_000 }, { lang: 'zh', compactPercent: 67.8 });
+  assert.ok(!warn.body.includes('67.8%'), '45% 档不搬压缩点，否则失去「还能继续干」的含义');
+  assert.ok(!warn.body.includes('80%'));
+});
+
+test('自动压缩点：按 min(窗口×0.8, 窗口−输出预留−65536) 推算（与 DSH 同一公式）', () => {
+  const engine = createGuardEngine(defaultConfig());
+  engine.observe('c', { projectedTokens: 400_000, contextWindow: 1_000_000 });
+  engine.setReserve('c', 256_000);
+  assert.equal(engine.mirrorView({ id: 'c' }).compactPercent, 67.8, 'deepseek-flash 默认：678,464/1,000,000');
+  engine.setReserve('c', 131_072);
+  assert.equal(engine.mirrorView({ id: 'c' }).compactPercent, 80, '1M 窗口 + 128K 预留 ⇒ 800,000');
+
+  engine.observe('d', { projectedTokens: 10_000, contextWindow: 200_000 });
+  engine.setReserve('d', 131_072);
+  assert.equal(engine.mirrorView({ id: 'd' }).compactPercent, 1.7, '小窗口 + 大预留 ⇒ 压缩点极低（配置坑）');
+
+  assert.equal(engine.mirrorView({ id: 'unknown' }).compactPercent, null, '窗口/预留未知 ⇒ null，不编数字');
 });
 
 test('P3：压缩回执与降级态文案不含平台「约 80%」断言（两个时态分开）', () => {

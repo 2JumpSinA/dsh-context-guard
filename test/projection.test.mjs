@@ -225,8 +225,10 @@ const gate = (name, fn) =>
 // v0.4.6：wire 里多了**宿主阈值三字段**（`warnRatio` / `hardRatio` / `enabled`）——
 // 客户端据此在「宿主档位还没被事件驱动」时做只读的显示兜底（§37.4）。
 // v0.5.0：又多了**压缩回执三字段**（`receiptPercent` / `receiptRow` / `receiptAt`）。
+// v0.6.1：多了**自动压缩点**（`compactPercent`，按 DSH 公式推算）。
 const VIEW_KEYS = [
   'armed',
+  'compactPercent',
   'cooldown',
   'enabled',
   'hardRatio',
@@ -271,6 +273,7 @@ gate('snapshot 契约：出现 contextGuard，view 形状正确且是扁平纯 J
     receiptPercent: null,
     receiptRow: null,
     receiptAt: null,
+    compactPercent: null,
   });
   t.diagnostic(`初始 view：${JSON.stringify(initial.values.contextGuard)}`);
 
@@ -381,6 +384,7 @@ gate('schema 不是摆设：parse 合法时**原样返回**（引用稳定），
     receiptPercent: null,
     receiptRow: null,
     receiptAt: null,
+    compactPercent: null,
   };
   assert.equal(def.wire.viewSchema.parse(good), good, '合法 view 必须原样返回，否则引用稳定性被 parse 毁掉');
 
@@ -399,6 +403,7 @@ gate('schema 不是摆设：parse 合法时**原样返回**（引用稳定），
       receiptPercent: null,
       receiptRow: null,
       receiptAt: null,
+      compactPercent: null,
     },
     '非法 view 必须被夹成合法形状',
   );
