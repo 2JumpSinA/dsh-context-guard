@@ -98,6 +98,8 @@ function fakeCtx({ withProjections = true, withWebServer = false, withWechat = f
       // `ctx.inject(['sessionProjections'], (sctx) => …)` 里直接读 `sctx.sessionProjections`。
       // 这里就把服务挂在友元对象上，别去 spread 整个 ctx（会把 logger 这类成员搞坏）。
       const child = Object.create(ctx);
+      // v0.6.7：按注入名把服务挂上去（`ctx.inject(['compaction'], …)` 也要能读到）。
+      for (const n of names) child[n] = services.get(n);
       child.sessionProjections = withProjections ? services.get('sessionProjections') : undefined;
       child.webServer = webServer;
       child.wechatNotify = wechatNotify;
