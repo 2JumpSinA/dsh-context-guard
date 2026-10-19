@@ -751,6 +751,35 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
     check('再起草一次后人工结论仍在（0.3.6 的保留逻辑）', after.includes('这一格是 agent 补的'), after.slice(-400));
     check('todoFilled 变为 true', second.payload?.ok === true && second.payload?.todoFilled === true, JSON.stringify(second.payload));
 
+    /**
+     * v0.4.6 回归（真机故障 §37.4 的连带症状）：**恢复出来的会话**。
+     * 真机顺序：`session/created` 先到（此时投影还没回放 ⇒ 读到空）→ 稍后 `hydrate` 算好了快照，
+     * 但它**不通知监听者** ⇒ `lastPressure` 一直是空的 ⇒ 徽标 67% 而按钮报 `no-reading`。
+     * 修法：按钮被点的那一刻**当场补读一次**注册表快照（只读）。
+     */
+    {
+      const restored = { id: 'restored1', header: { id: 'restored1', cwd: dir, createdAt: Date.now() } };
+      // 1) 先按真机顺序：created 时快照为空 ⇒ 读数不可用、素材也不会被建立
+      for (const listener of handlers.get('session/created') ?? []) listener(restored);
+      // 2) 用户点按钮时，投影已经就绪（hydrate 过了，但没有 onChanged 事件）
+      projections.snapshot = () => ({
+        asOfSeq: 0,
+        values: { contextPressure: { projectedTokens: 700_000, contextWindow: 1_000_000 } },
+      });
+      const restoredOut = await call({ method: 'POST', url: `${DRAFT_ROUTE}?sessionId=restored1` });
+      await new Promise((r) => setTimeout(r, 80));
+      check(
+        '恢复的会话：created 时没读数，点按钮仍能起草（当场补读一次投影）',
+        restoredOut.payload?.ok === true && restoredOut.payload?.doc === 'HANDOVER.md',
+        JSON.stringify(restoredOut.payload),
+      );
+      check(
+        '恢复的会话：素材没建立时 cwd 从会话本身补（不能报 no-path）',
+        existsSync(file) && readFileSync(file, 'utf8').includes(beginMarker('restored1')),
+      );
+      projections.snapshot = () => ({ asOfSeq: 0, values: {} });
+    }
+
     // 6i. 压缩前快照（v0.4.1）：压缩后投影已经是低水位 ⇒ 快照必须取**压缩前峰值**
     fire(s, { projectedTokens: 600_000, contextWindow: 1_000_000 });
     await new Promise((r) => setTimeout(r, 50));
@@ -807,9 +836,15 @@ check('normalizeConfig 兜住非数字', normalizeConfig({ warnRatio: 'x' }).war
     check('init 只依赖会话头（id 来自 header）', state.id === 'proj-s1' && state.level === 'none', JSON.stringify(state));
     const view = def.wire.viewSchema.parse(def.wire.view(state));
     check(
-      'view 是 level/armed/turn/cooldown/ratio 五个扁平字段',
-      JSON.stringify(Object.keys(view).sort()) === JSON.stringify(['armed', 'cooldown', 'level', 'ratio', 'turn']),
+      'view 是 level/armed/turn/cooldown/ratio + 阈值三字段（warnRatio/hardRatio/enabled）',
+      JSON.stringify(Object.keys(view).sort()) ===
+        JSON.stringify(['armed', 'cooldown', 'enabled', 'hardRatio', 'level', 'ratio', 'turn', 'warnRatio']),
       JSON.stringify(view),
+    );
+    check(
+      'view 带着宿主阈值（v0.4.6：客户端显示兜底要用，且阈值只有宿主这一份真源）',
+      typeof view.warnRatio === 'number' && typeof view.hardRatio === 'number' && view.enabled === true,
+      JSON.stringify({ warnRatio: view.warnRatio, hardRatio: view.hardRatio, enabled: view.enabled }),
     );
     check('view 里不掺排障面（recent/history/trend）', !('recent' in view) && !('history' in view) && !('trend' in view));
     check('同一个 state ⇒ 同一个 view 引用（注册表据此判定不广播）', def.wire.view(state) === def.wire.view(state));

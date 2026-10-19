@@ -77,3 +77,23 @@ test('冷却按「轮」衰减：endTurn 递减 cooldown，且衰减到 0 后仍
   // 同一档位仍不出声（边沿触发，与冷却无关）
   assert.equal(engine.observe(S, p(0.52)), null);
 });
+
+test('wire 视图随投影下发宿主阈值（v0.4.6，客户端显示兜底要用它）', () => {
+  const engine = createGuardEngine(defaultConfig({ warnRatio: 0.4, hardRatio: 0.55 }));
+  const view = engine.mirrorView({ id: 'thresholds' });
+  assert.equal(view.level, 'none');
+  assert.equal(view.warnRatio, 0.4, 'warnRatio 必须随投影下发（客户端不许自己记一份阈值）');
+  assert.equal(view.hardRatio, 0.55);
+  assert.equal(view.enabled, true);
+
+  // 阈值改了 ⇒ 视图必须换引用（下一轮 drive 才会广播给浏览器）
+  const before = view;
+  engine.setConfig(defaultConfig({ warnRatio: 0.3, hardRatio: 0.5 }));
+  const after = engine.mirrorView({ id: 'thresholds' });
+  assert.notEqual(after, before, '阈值变化也是「值变了」，引用必须换');
+  assert.equal(after.warnRatio, 0.3);
+
+  // 宿主总开关关掉 ⇒ 客户端兜底也必须跟着闭嘴
+  engine.setConfig(defaultConfig({ enabled: false }));
+  assert.equal(engine.mirrorView({ id: 'thresholds' }).enabled, false);
+});

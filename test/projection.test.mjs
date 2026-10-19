@@ -222,7 +222,9 @@ const gate = (name, fn) =>
     await fn(t);
   });
 
-const VIEW_KEYS = ['armed', 'cooldown', 'level', 'ratio', 'turn'];
+// v0.4.6：wire 里多了**宿主阈值三字段**（`warnRatio` / `hardRatio` / `enabled`）——
+// 客户端据此在「宿主档位还没被事件驱动」时做只读的显示兜底（§37.4）。
+const VIEW_KEYS = ['armed', 'cooldown', 'enabled', 'hardRatio', 'level', 'ratio', 'turn', 'warnRatio'];
 
 gate('注册契约：key=contextGuard、stateVersion=0、四个回调与 wire 齐全，且只注册一次', () => {
   const h = boot();
@@ -250,13 +252,16 @@ gate('snapshot 契约：出现 contextGuard，view 形状正确且是扁平纯 J
     turn: 0,
     cooldown: 0,
     ratio: null,
+    warnRatio: 0.45,
+    hardRatio: 0.6,
+    enabled: true,
   });
   t.diagnostic(`初始 view：${JSON.stringify(initial.values.contextGuard)}`);
 
   // 70% ⇒ hard（超过默认 hardRatio 0.6）
   h.project(s, p(0.7));
   const after = h.registry.snapshot(s).values.contextGuard;
-  assert.deepEqual([...Object.keys(after)].sort(), VIEW_KEYS, `view 只允许这五个字段，实际：${Object.keys(after)}`);
+  assert.deepEqual([...Object.keys(after)].sort(), VIEW_KEYS, `view 只允许这八个字段，实际：${Object.keys(after)}`);
   assert.equal(after.level, 'hard');
   assert.equal(after.armed, true);
   assert.equal(after.turn, 0);
@@ -348,11 +353,24 @@ gate('回落链路：占用率降回迟滞线以下 ⇒ level 回 none、armed �
 gate('schema 不是摆设：parse 合法时**原样返回**（引用稳定），非法值才重建', () => {
   const h = boot();
   const def = h.registry.registrations.get('contextGuard');
-  const good = { level: 'warn', armed: true, turn: 2, cooldown: 3, ratio: 0.5 };
+  const good = {
+    level: 'warn',
+    armed: true,
+    turn: 2,
+    cooldown: 3,
+    ratio: 0.5,
+    warnRatio: 0.45,
+    hardRatio: 0.6,
+    enabled: true,
+  };
   assert.equal(def.wire.viewSchema.parse(good), good, '合法 view 必须原样返回，否则引用稳定性被 parse 毁掉');
 
   const fixed = def.wire.viewSchema.parse({ level: 'nonsense', armed: 1, turn: -3, cooldown: 'x', ratio: 5 });
-  assert.deepEqual(fixed, { level: 'none', armed: false, turn: 0, cooldown: 0, ratio: 1 }, '非法 view 必须被夹成合法形状');
+  assert.deepEqual(
+    fixed,
+    { level: 'none', armed: false, turn: 0, cooldown: 0, ratio: 1, warnRatio: null, hardRatio: null, enabled: true },
+    '非法 view 必须被夹成合法形状',
+  );
 
   const stateOk = { id: 'x', level: 'hard', armed: true, turn: 1, cooldown: 0, ratio: 0.9 };
   assert.equal(def.stateSchema.parse(stateOk), stateOk, '合法 state 必须原样返回');

@@ -24,6 +24,8 @@ import {
   isVolatileRef,
   STATE_ROUTE,
   LEVEL_ORDER,
+  displayLevel,
+  shownBannerLevel,
 } from '../lib/policy.mjs';
 // 判定状态机 v0.4.3 搬到 engine.mjs（policy.mjs 会被逐字内联进浏览器 bundle，
 // 状态机住在里面 ⇒ 客户端永远「有一套可用的判定逻辑」，那正是 P1-5 漂移的入口）。
@@ -333,4 +335,44 @@ test('volatile 引用：设置改了就能读到新值（同一引用的第二�
   assert.equal(plainConfig({ warnRatio: ref }).warnRatio, 0.33);
   current = 0.7; // 模拟设置页写入
   assert.equal(plainConfig({ warnRatio: ref }).warnRatio, 0.7, '引用是活的，值必须跟着变');
+});
+
+/**
+ * v0.4.6：显示档位兜底（真机故障 §37.4）。
+ * 场景：打开一个恢复出来的 67% 历史会话 —— 宿主没有新事件可驱动，档位停在 `none`，
+ * 而官方 `contextPressure` 已经是 67%。banner 必须凭这条读数就弹。
+ */
+test('displayLevel：宿主有档位就听宿主的，不存在第二套判定', () => {
+  const r = (ratio) => readOccupancy({ projectedTokens: Math.round(ratio * 200000), contextWindow: 200000 });
+  const host = { level: 'hard', armed: true, turn: 3, cooldown: 2, ratio: 0.9, warnRatio: 0.45, hardRatio: 0.6, enabled: true };
+  assert.equal(displayLevel(host, r(0.2)), 'hard', '宿主说 hard 就必须是 hard（哪怕官方读数只有 20%）');
+  assert.equal(displayLevel({ ...host, level: 'warn' }, r(0.9)), 'warn', '宿主说 warn 就听 warning，不自行升级');
+});
+
+test('displayLevel：宿主停在 none + 官方读数已过线 ⇒ 兜底显示（恢复会话的启动基线）', () => {
+  const view = { level: 'none', armed: false, turn: 0, cooldown: 0, ratio: null, warnRatio: 0.45, hardRatio: 0.6, enabled: true };
+  const r = (ratio) => readOccupancy({ projectedTokens: Math.round(ratio * 200000), contextWindow: 200000 });
+  assert.equal(displayLevel(view, r(0.67)), 'hard', '67% ≥ hardRatio 0.6 ⇒ 页面加载那一刻就该是 hard');
+  assert.equal(displayLevel(view, r(0.5)), 'warn');
+  assert.equal(displayLevel(view, r(0.2)), 'none', '没过线当然不提示');
+  // 阈值缺席 ⇒ 退回出厂值（defaultConfig），两边仍是同一份
+  assert.equal(displayLevel({ level: 'none' }, r(0.67)), 'hard');
+  // 无读数 ⇒ fail-closed（不假装 0%，也不假装过线）
+  assert.equal(displayLevel(view, readOccupancy(undefined)), 'none');
+  // 宿主总开关关掉 ⇒ 客户端也不许自己喊
+  assert.equal(displayLevel({ ...view, enabled: false }, r(0.99)), 'none');
+});
+
+/**
+ * v0.4.7（真机反馈 2026-10-19 14:5x）：压缩把水位压到 20% 之后 banner 整个消失，
+ * 而里面正摆着「①/② 可复制交接」—— 用户恰好在按提示写结论，面板被一次压缩带走。
+ * 规矩：**出过声就不消失**，等用户自己点「知道了 / ×」。
+ */
+test('shownBannerLevel：出过声的 banner 不因压缩回落而消失', () => {
+  assert.equal(shownBannerLevel('hard', 'none'), 'hard', '水位掉回 none 时沿用出过声的 hard');
+  assert.equal(shownBannerLevel('none', 'warn'), 'warn');
+  assert.equal(shownBannerLevel('hard', 'warn'), 'hard', '当前档位优先于旧档位');
+  assert.equal(shownBannerLevel('none', 'none'), 'none', '没出过声就不显示');
+  assert.equal(shownBannerLevel('none', undefined), 'none');
+  assert.equal(shownBannerLevel('warn', 'hard'), 'warn', '已经回落成 warn 就按 warn 说');
 });
