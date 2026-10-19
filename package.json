@@ -1,6 +1,6 @@
 {
   "name": "@2jumpsina/dsh-context-guard",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "DSH 长会话读数与收尾：ctx 角标实时显示占用；平台压缩那刻把压缩前读数抢存一行；45% 起零 LLM 起草交接草稿，压缩点按参数推算并标来源。全程零上下文税。",
   "type": "module",
   "main": "lib/index.js",

@@ -8,11 +8,13 @@ It consumes the `contextPressure` projection that the official `dsh-token-meter`
 
 **Context tax = 0**: it registers no model-facing tool, injects no prompt section, and sends no extra request. The host does the arithmetic, the UI does the talking.
 
-> 🆕 **v0.5.0 (local, unreleased)**: the product narrows from "prompt tool" to "record tool + a handoff you can walk back from".
-> **WeChat push** and **cross-session trend** are removed (their config keys stay as no-ops for compatibility);
-> the per-session "pre-compaction snapshot" becomes one global **compaction ledger** (idempotent by `compactionId`,
-> peak-before value, capped rows); the banner's degraded state gained a **compaction receipt**; and the write path
-> is fail-safe — a broken block marker means **refuse to write**, never swallow the rest of the file. See `HANDOVER.md` §39.
+> 🆕 **Current release is live on npm `latest` (0.7.x)**: 45% silently drafts the handoff, 60% is the only reminder;
+> the compaction point shows up in the badge tooltip and in the banner body (computed live as
+> `min(window×0.8, window − reserve − 64K)`, with its source; marked "estimated" when the platform's
+> compaction config is unreadable); and the moment the platform compacts, the pre-compaction reading is
+> captured into the **compaction ledger** inside `HANDOVER.md`.
+> Since v0.5.0 the **WeChat push** and **cross-session trend** are gone (their config keys retired from the
+> schema in v0.7.2; leftover values in old profiles are ignored safely). See `HANDOVER.md` §46–§48.
 
 > ⚠️ **Do not run `npm i dsh-context-guard`** — that unscoped name is a **third party's** package
 > (by `greenlv`). This plugin's name is scoped: **`@2jumpsina/dsh-context-guard`**, published on npm
