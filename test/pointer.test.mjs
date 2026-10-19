@@ -176,6 +176,28 @@ test('P3：hard 档正文按三态给数字（config 精确 / default 近似 / n
   assert.match(estimated.body, /约 67\.8%/, 'default 态必须写清是推算');
   assert.match(estimated.body, /默认参数/);
 
+  /**
+   * v0.6.13 回归：浏览器半边把这两个字段塞在 **signal** 里（不是 opts）。
+   * 只读 opts 的旧实现 ⇒ basis 恒为 none ⇒ banner 永远不写数字（真机现象：tooltip 有、banner 没有）。
+   */
+  const viaSignal = describe({
+    level: 'hard',
+    ratio: 0.8,
+    projectedTokens: 800_000,
+    contextWindow: 1_000_000,
+    compactPercent: 69.3,
+    compactBasis: 'default',
+  });
+  assert.match(viaSignal.body, /约 69\.3%/, 'signal 里带的压缩点必须被认（banner 走的这条）');
+  assert.match(viaSignal.body, /默认参数/);
+
+  const optsWin = describe(
+    { level: 'hard', ratio: 0.8, compactPercent: 69.3, compactBasis: 'default' },
+    { lang: 'zh', compactPercent: 67.8, compactBasis: 'config' },
+  );
+  assert.match(optsWin.body, /67\.8%/, 'opts 优先于 signal');
+  assert.ok(!optsWin.body.includes('约 67.8%'), 'opts 的 config 态同样不许说「约」');
+
   const unknown = describe({ level: 'hard', ratio: 0.8 }, { lang: 'zh', compactBasis: 'none' });
   assert.ok(!unknown.body.includes('自动压缩点'), '算不出来时不许写数字');
 
