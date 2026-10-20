@@ -1,7 +1,7 @@
 {
   "name": "@2jumpsina/dsh-context-guard",
-  "version": "0.7.4",
-  "description": "长会话越跑越贵：每轮重读全部上下文。压缩前那一刻的读数，平台不留。它在会话头挂 ctx 角标，45% 起静默把机器事实写进 HANDOVER.md（会话、花费、文件增删行，写时核过），60% 才提醒，压缩那刻抢存一行读数，全程不调模型。",
+  "version": "0.7.5",
+  "description": "长会话越跑越贵：每轮重读全部上下文，压缩前那一刻的读数平台不留。它挂 ctx 角标，45% 起静默写交接草稿，60% 才提醒，压缩那刻记一行账，不调模型。 | Long sessions get expensive as every turn re-reads the context, and the pre-compaction reading is lost. A ctx badge, a silent handover draft from 45%, one banner at 60%, a ledger row at compaction. No model calls.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
