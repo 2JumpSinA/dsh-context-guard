@@ -23,7 +23,8 @@ It consumes the `contextPressure` projection that the official `dsh-token-meter`
 > 🙂 **Got it running? Send me a line — what I want most is to hear what could be better.**
 > [One line is enough](https://github.com/2JumpSinA/dsh-context-guard/issues/new/choose): what it got right in your setup, and what felt off.
 
-![Session-header badge (ctx 48%) and the one-shot banner — redacted screenshot, session content masked](docs/badge-and-banner.png)
+![Session-header badge (ctx 69%) and the one reminder at 60% — both cropped element-level from the real UI; no session titles or message text](docs/ui-badge-and-banner.png)
+![The handover draft written from 45% — rendered by the plugin's own composeHandoverBlock() with demo data](docs/badge-and-banner.png)
 
 ---
 

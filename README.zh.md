@@ -21,7 +21,8 @@ npm 包名：**`@2jumpsina/dsh-context-guard`** · [English](README.md)
 > 🙂 **用起来了？回我一条吧 —— 我想知道还有哪些可以改善的地方。**
 > [一句话就够](https://github.com/2JumpSinA/dsh-context-guard/issues/new/choose)：它在你那儿做对了什么、哪里别扭。
 
-![会话头徽标（ctx 48%）与一次性 banner —— 截图为脱敏版，会话内容已打码](docs/badge-and-banner.png)
+![会话角标（ctx 69%）与跨过 60% 时的那一次提醒 —— 两张都从真实界面按元素裁剪，会话标题与正文不在画面内](docs/ui-badge-and-banner.png)
+![45% 起自动写进工作目录的交接草稿 —— 由插件自身的 composeHandoverBlock() 用演示数据渲染](docs/badge-and-banner.png)
 
 ---
 
