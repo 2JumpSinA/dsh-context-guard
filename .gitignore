@@ -29,5 +29,14 @@ Desktop.ini
 *.zip
 *.bundle
 
+# —— 工作区 / 本地资料：永不入库 ——
+# 这些目录只存在于开发者本机，含探针日志、Chrome 配置档案（Cookies / Login Data）、
+# HANDOVER.md 备份与 pipenv 缓存 ⇒ 一律排除。
+# ⚠️ 别指望 .git/info/exclude：那是本地配置，不随仓库走，换台机器/换个克隆就失效。
+_recon/
+_tools/
+avatar_deliver/
+gaara_*
+
 # —— 例外：需要入库的截图（必须放在上面 /*.png 之后才能生效）——
 !docs/*.png
